@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Making a Drift Sketch</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column like a museum handbook; the opening is a dusk horizon drawn in CSS, the room the guide is about. */
+:root {
+  --bg: #f3f1f6;          /* pale evening paper, a touch of violet */
+  --fg: #1d1b26;
+  --muted: #5d5a6b;
+  --rule: #d9d5e2;
+  --panel: #e9e6ef;
+  --accent: #b3471f;      /* the sun at the horizon */
+  --accent-soft: #e9b48f;
+  --sky-1: #2a2f5c; --sky-2: #7b4d77; --sky-3: #e58c5a;
+  --hill-1: #3b3156; --hill-2: #241f38;
+  --display: "Instrument Serif", "Sitka Banner", Georgia, serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f0e17; --fg: #ebe8f2; --muted: #a29eb4; --rule: #2b2839; --panel: #191724;
+  --accent: #f29a62; --accent-soft: #7a4630;
+  --sky-1: #0b0d22; --sky-2: #3a2547; --sky-3: #c46a3e; --hill-1: #1f1a30; --hill-2: #0f0e17;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f0e17; --fg: #ebe8f2; --muted: #a29eb4; --rule: #2b2839; --panel: #191724;
+  --accent: #f29a62; --accent-soft: #7a4630;
+  --sky-1: #0b0d22; --sky-2: #3a2547; --sky-3: #c46a3e; --hill-1: #1f1a30; --hill-2: #0f0e17;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 var(--body); }
+a { color: var(--accent); }
+.wrap { max-width: 46rem; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px));
+        padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+.horizon { position: relative; overflow: hidden; color: #fff8f0;
+  background: linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 52%, var(--sky-3) 78%, var(--sky-3) 100%); }
+.horizon .wrap { position: relative; z-index: 2; padding-block: 4.5rem 9rem; }
+.horizon .sun { position: absolute; z-index: 1; width: 9rem; height: 9rem; border-radius: 50%; right: 14%; bottom: 3.2rem;
+  background: radial-gradient(circle, #ffe2b8 0 38%, rgba(255,190,130,.55) 40%, rgba(255,160,100,0) 70%); }
+.horizon svg { position: absolute; z-index: 1; left: 0; bottom: 0; width: 100%; height: 6.5rem; display: block; }
+.eyebrow { font: 500 .74rem/1 var(--body); letter-spacing: .2em; text-transform: uppercase; opacity: .85; }
+h1 { font: 400 clamp(2.6rem, 8vw, 4.4rem)/1.02 var(--display); margin: .6rem 0 1rem; text-wrap: balance; }
+.lede { font-size: 1.12rem; max-width: 34rem; opacity: .92; margin: 0; }
+
+main .wrap { padding-block: 3rem 5rem; }
+section { padding-block: 1.6rem; border-top: 1px solid var(--rule); }
+section:first-child { border-top: 0; }
+h2 { font: 400 2rem/1.15 var(--display); margin: 0 0 .8rem; text-wrap: balance; }
+h3 { font: 600 .78rem/1.3 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 1.8rem 0 .5rem; }
+p, li { max-width: 65ch; }
+ul, ol { padding-left: 1.2rem; }
+li { margin: .35rem 0; }
+code, pre, kbd { font-family: var(--mono); font-size: .88em; }
+code { background: var(--panel); padding: .08em .35em; border-radius: 4px; }
+kbd { border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 .35em; background: var(--panel); }
+pre { background: var(--panel); padding: 1rem 1.1rem; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 1rem 0; }
+pre code { background: none; padding: 0; }
+
+.materials { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1px; background: var(--rule);
+  border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin: 1.2rem 0; }
+.materials div { background: var(--bg); padding: 1rem 1.1rem; min-width: 0; }
+.materials b { display: block; font: 400 1.3rem/1.2 var(--display); margin-bottom: .3rem; }
+.materials span { color: var(--muted); font-size: .92rem; }
+
+.rule-list { list-style: none; padding: 0; counter-reset: r; }
+.rule-list li { position: relative; padding-left: 2.4rem; margin: 1.1rem 0; }
+.rule-list li::before { counter-increment: r; content: counter(r); position: absolute; left: 0; top: -.1rem;
+  font: 400 1.6rem/1 var(--display); color: var(--accent); }
+.rule-list strong { display: block; }
+
+.steps { padding-left: 1.4rem; }
+.steps li { padding-left: .3rem; }
+
+.table { overflow-x: auto; margin: .6rem 0 1rem; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; padding: .55rem .7rem .55rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 600 .72rem/1.3 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+td:first-child { white-space: nowrap; }
+
+.covers { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+.covers figure { margin: 0; width: 6.2rem; }
+.covers i { display: block; aspect-ratio: 1; max-width: 100%; border-radius: 4px; }
+.covers figcaption { font-size: .78rem; color: var(--muted); line-height: 1.3; margin-top: .3rem; }
+
+.check { list-style: none; padding: 0; }
+.check li { padding-left: 1.7rem; position: relative; }
+.check li::before { content: ""; position: absolute; left: 0; top: .38rem; width: .9rem; height: .9rem;
+  border: 1.5px solid var(--accent); border-radius: 3px; }
+.note { border-left: 3px solid var(--accent); padding: .2rem 0 .2rem 1rem; color: var(--muted); }
+footer { color: var(--muted); font-size: .85rem; padding-block: 0 3rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .horizon .sun { animation: rise 2.4s ease-out both; }
+  @keyframes rise { from { transform: translateY(1.6rem); } to { transform: none; } }
+}
+</style>
+</head>
+<body>
+
+<header class="horizon">
+  <div class="wrap">
+    <div class="eyebrow">Drift · artist guide</div>
+    <h1>Making a Drift sketch</h1>
+    <p class="lede">Drift is a museum for music, and a sketch is one of its rooms. Drift brings the songs, the
+    sound and every button. You draw the room, from a blank page: ink on paper, a darkroom, a tape deck,
+    anything you can picture.</p>
+  </div>
+  <div class="sun" aria-hidden="true"></div>
+  <svg viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true">
+    <path fill="var(--hill-1)" d="M0 70 C120 40 220 80 330 58 C460 30 560 74 690 52 C820 30 930 66 1050 46 C1120 36 1170 48 1200 44 V120 H0 Z"/>
+    <path fill="var(--hill-2)" d="M0 96 C90 78 180 100 290 86 C420 70 520 104 640 90 C780 74 880 100 1000 86 C1090 76 1160 90 1200 84 V120 H0 Z"/>
+  </svg>
+</header>
+
+<main>
+<div class="wrap">
+
+<section>
+  <h2>What a sketch is</h2>
+  <p>Drift comes with three rooms, <strong>Sunset</strong>, <strong>Vinyl</strong> and <strong>Paper Theatre</strong>. Every other room is a sketch:
+  a folder with four kinds of file.</p>
+  <div class="materials">
+    <div><b>sketch.json</b><span>Its name, who made it, one line about it, and the words of the menu along the top.</span></div>
+    <div><b>sketch.js</b><span>Your drawing: a short JavaScript file that paints the Now page from the song that is playing.</span></div>
+    <div><b>Pictures</b><span>Paper, a wall, brushes, a photo: PNG, JPG, WEBP or BMP files you draw with.</span></div>
+    <div><b>A font</b><span>Optional: one .ttf or .otf for titles, if its licence lets you share it.</span></div>
+  </div>
+  <p>Zipped, the folder is a <code>.driftsketch</code> file that anyone with Drift can import.</p>
+  <p><strong>It is safe to share.</strong> sketch.js runs in a sealed box. It cannot read or write files, reach the
+  internet, or start anything on the computer. It can only draw, and ask Drift to play, pause, skip, seek or open
+  the lyrics. If it takes too long, Drift stops it and shows a message.</p>
+</section>
+
+<section>
+  <h2>Your materials</h2>
+  <p>Every time Drift needs a picture, it hands your <code>draw</code> function the song. A good room is built from
+  these, so that every song makes its own picture:</p>
+  <div class="materials">
+    <div><b>Its colours</b><span><code>song.colors</code>: a palette taken from the cover. Use it and the room changes
+      with every song.</span></div>
+    <div><b>Its shape</b><span><code>song.shape</code>: the loudness of the whole song in 160 steps. Hills, grooves,
+      a brush stroke, a skyline.</span></div>
+    <div><b>Its cover</b><span>Draw it as it is, crop it, mask it, tint it, use it as a stamp or a reflection.</span></div>
+    <div><b>Time and words</b><span><code>song.progress</code>, the seconds, and <code>song.line</code>, the line
+      being sung right now.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Designing one that fits the music</h2>
+  <ol class="rule-list">
+    <li><strong>Let the song lead.</strong> Hundreds of different covers will pass through your room. Build with
+      <code>song.colors</code> and <code>song.shape</code> rather than fixed colours, so the room answers the music.
+      Fix one or two things (paper, ink) and let each song bring the rest.</li>
+    <li><strong>Start from one idea.</strong> "Every song is a brush stroke on rice paper." "Every song is a photo
+      developing in a tray." Pick each choice to serve that sentence and leave out the rest.</li>
+    <li><strong>Make the song's progress visible.</strong> People want to see where they are. Let something move or
+      fill as the song plays, and let a click on it move through the song.</li>
+    <li><strong>Quiet behind, clear in front.</strong> The title and the sung line must read on every cover. Keep
+      what sits behind words low in contrast.</li>
+    <li><strong>Keep it dark enough to rest in.</strong> Music plays at night and during games. Large bright areas
+      tire the eyes; save light for what matters.</li>
+    <li><strong>Less motion is more.</strong> With <code>fps = 0</code> your room redraws only when something
+      changes, which is lightest on the computer. Use motion where it means something, slowly.</li>
+  </ol>
+
+  <h3>Test it with five covers</h3>
+  <p>Play songs whose covers look like these, plus one song with no cover, and try the calm view
+  (double-click). If the room works for all of them, it is done.</p>
+  <div class="covers" aria-label="Five kinds of cover to test with">
+    <figure><i style="background:linear-gradient(135deg,#ffd23f,#ff4e8a)"></i><figcaption>Bright pop</figcaption></figure>
+    <figure><i style="background:linear-gradient(135deg,#f2f2f2,#1a1a1a)"></i><figcaption>Black and white</figcaption></figure>
+    <figure><i style="background:linear-gradient(135deg,#0b1f4d,#1d5c8f)"></i><figcaption>Deep blue</figcaption></figure>
+    <figure><i style="background:linear-gradient(135deg,#00e0c6,#7a00ff)"></i><figcaption>Neon</figcaption></figure>
+    <figure><i style="background:linear-gradient(135deg,#c89b7b,#5b3a29)"></i><figcaption>A face, a photo</figcaption></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Making it, step by step</h2>
+  <ol class="steps">
+    <li>In Drift, open <strong>Settings</strong>, then <strong>Sketches</strong>, then <strong>New sketch…</strong>
+      and give it a name.</li>
+    <li>Drift makes the folder, switches to the new room and opens the folder and this guide. The room starts as a
+      blank page: a dark ground, the cover, the song's shape as one line, the title. It is there so you can see
+      something work straight away. Replace all of it.</li>
+    <li>Open <code>sketch.js</code> in any text editor (Notepad works; VS Code colours the code).</li>
+    <li>Change something and save. Drift redraws within a second, every time. Keep Drift beside your editor.</li>
+    <li>Put your pictures and font in the same folder and use them by file name.</li>
+    <li>If something is wrong, Drift shows the problem and the line in sketch.js on the Now page. Fix it and save.</li>
+    <li>Fill in <code>by</code> and <code>about</code> in sketch.json, then press <strong>Export…</strong> in
+      Settings to make the <code>.driftsketch</code> file.</li>
+  </ol>
+  <p>To use a sketch someone sent you: <strong>Settings → Sketches → Import…</strong>.
+  <kbd>Ctrl</kbd> + <kbd>T</kbd> walks through every room.</p>
+</section>
+
+<section>
+  <h2>A first room</h2>
+  <p>This whole sketch.js paints each song as one ink stroke across paper. The stroke is the song's shape; the
+  part already played is wet ink, the rest is a pencil line; a click on it moves through the song.</p>
+<pre><code>var fps = 0;
+
+function draw(g, song, t) {
+  var W = g.width, H = g.height;
+  g.fill('#efe9dc').rect(0, 0, W, H);                   // the paper
+  g.texture('paper.png', 0.5);                          // a picture in the folder, tiled
+
+  var y = H * 0.55, x0 = 60, x1 = W - 60;
+  var line = [];
+  for (var i = 0; i &lt; song.shape.length; i++) {
+    var x = x0 + (x1 - x0) * i / 159;
+    line.push(x, y - song.shape[i] * 120 + drift.noise(i / 8) * 10);
+  }
+  var cut = Math.max(2, Math.round(song.progress * 159) * 2 + 2);
+  g.noFill();
+  g.stroke('rgba(40,30,20,0.25)', 1).curve(line);       // pencil: the whole song
+  g.stroke(song.colors.dark, 6).curve(line.slice(0, cut)); // ink: what has played
+  g.noStroke();
+
+  g.fill('#2a2118').text(song.title, x0, H * 0.72, { size: 34, font: 'title' });
+  g.fill('#6b5d4d').text(song.line, x0, H * 0.72 + 52, { size: 14, font: 'title', italic: true });
+}
+
+function press(x, y) { drift.seek((x - 60) / (g.width - 120)); }
+function drag(x, y)  { drift.seek((x - 60) / (g.width - 120)); }</code></pre>
+</section>
+
+<section>
+  <h2>Reference</h2>
+
+  <h3>sketch.json</h3>
+  <div class="table"><table>
+    <tr><th>key</th><th>what it is</th></tr>
+    <tr><td><code>drift_sketch</code></td><td>Always <code>1</code>.</td></tr>
+    <tr><td><code>name</code>, <code>by</code></td><td>Up to 48 characters each.</td></tr>
+    <tr><td><code>about</code></td><td>One line, up to 240 characters.</td></tr>
+    <tr><td><code>stage</code></td><td><code>"canvas"</code> (a room drawn by sketch.js).</td></tr>
+    <tr><td><code>script</code></td><td>The drawing file, normally <code>"sketch.js"</code> (512 KB at most).</td></tr>
+    <tr><td><code>words</code></td><td>The menu along the top: <code>home</code>, <code>explore</code>, <code>library</code>,
+      <code>liked</code>, <code>queue</code>, <code>playlists</code>. For example <code>{"home": "Easel"}</code>.</td></tr>
+    <tr><td><code>player</code></td><td><code>"bottom"</code> (Drift's player along the bottom) or <code>"hidden"</code>
+      (your room draws its own controls; the keyboard and media keys still work).</td></tr>
+    <tr><td><code>knobs</code></td><td><code>{"font": "MyFont.otf"}</code> makes <code>font: 'title'</code> use your font.</td></tr>
+  </table></div>
+
+  <h3>Functions Drift calls</h3>
+  <div class="table"><table>
+    <tr><th>in sketch.js</th><th>when</th></tr>
+    <tr><td><code>var fps = 0</code></td><td>0: draw only when something changes (song, position, lyrics, size). 1 to 30: also that
+      many times a second, for motion. Drift pauses motion when the window is hidden or a full-screen game is on.</td></tr>
+    <tr><td><code>draw(g, song, t)</code></td><td>The Now page. <code>t</code> is seconds since the room opened.</td></tr>
+    <tr><td><code>room(g, song)</code></td><td>Optional: the ground behind every other page. Drawn once per song and window size.</td></tr>
+    <tr><td><code>press(x, y, song)</code>, <code>drag</code>, <code>release</code>, <code>hover</code></td><td>Optional: the mouse on the Now page.</td></tr>
+    <tr><td><code>doubleClick(x, y, song)</code></td><td>Optional. Without it, a double click opens the calm view.</td></tr>
+    <tr><td><code>wheel(steps, song)</code></td><td>Optional: the mouse wheel, + up, − down.</td></tr>
+  </table></div>
+
+  <h3>The song</h3>
+  <div class="table"><table>
+    <tr><th>field</th><th>what it is</th></tr>
+    <tr><td><code>has</code></td><td><code>false</code> while nothing plays: draw a greeting.</td></tr>
+    <tr><td><code>title</code>, <code>artist</code>, <code>album</code></td><td>Text.</td></tr>
+    <tr><td><code>cover</code></td><td><code>"cover"</code> when the song has one (use it with <code>g.image</code>), else <code>""</code>.</td></tr>
+    <tr><td><code>shape</code></td><td>160 numbers from 0 to 1: the loudness from start to end. Empty until Drift has measured the song.</td></tr>
+    <tr><td><code>best</code></td><td>Where the loudest stretch starts (0 to 1), or −1.</td></tr>
+    <tr><td><code>progress</code></td><td>0 to 1. Also <code>position</code> and <code>duration</code> in seconds.</td></tr>
+    <tr><td><code>playing</code>, <code>liked</code>, <code>calm</code></td><td>true or false. <code>calm</code> is the calm view: draw less.</td></tr>
+    <tr><td><code>line</code>, <code>nextLine</code></td><td>The line being sung and the one after it (empty when unknown).</td></tr>
+    <tr><td><code>next</code></td><td>Up to five songs that follow: <code>[{title, artist}]</code>. <code>drift.play(i)</code> plays one.</td></tr>
+    <tr><td><code>colors</code></td><td>From the cover: <code>background</code>, <code>surface</code>, <code>glow</code>, <code>accent</code>,
+      <code>light</code>, <code>dark</code>, <code>soft</code>, <code>mid</code>, <code>lit</code>, <code>water</code>, <code>shallow</code>.</td></tr>
+  </table></div>
+
+  <h3>Drawing with g</h3>
+  <div class="table"><table>
+    <tr><th>call</th><th>what it does</th></tr>
+    <tr><td><code>g.width</code>, <code>g.height</code></td><td>The size of the page.</td></tr>
+    <tr><td><code>g.top</code>, <code>g.player</code></td><td>The height of the menu along the top; where Drift's player sits
+      (<code>{x, y, width, height}</code>, or null when hidden). Keep words clear of both.</td></tr>
+    <tr><td><code>g.fill(c)</code>, <code>g.noFill()</code></td><td>The colour shapes and text are filled with.</td></tr>
+    <tr><td><code>g.stroke(c, width)</code>, <code>g.noStroke()</code></td><td>The outline colour and width.</td></tr>
+    <tr><td><code>g.linear(x1, y1, x2, y2, stops)</code></td><td>Fill with a gradient: <code>[[0, '#000'], [1, '#fff']]</code>.</td></tr>
+    <tr><td><code>g.radial(x, y, r, stops)</code></td><td>A round gradient (glows, light).</td></tr>
+    <tr><td><code>g.rect(x, y, w, h, radius)</code></td><td>A rectangle, rounded if you give a radius.</td></tr>
+    <tr><td><code>g.circle(x, y, r)</code>, <code>g.ellipse(x, y, rx, ry)</code></td><td>Round shapes.</td></tr>
+    <tr><td><code>g.line(x1, y1, x2, y2)</code></td><td>A line (uses the stroke).</td></tr>
+    <tr><td><code>g.poly(points, closed)</code></td><td>Straight lines through <code>[x, y, x, y…]</code>.</td></tr>
+    <tr><td><code>g.curve(points, closed)</code></td><td>A smooth curve through the points.</td></tr>
+    <tr><td><code>g.arc(x, y, r, from, to)</code></td><td>Part of a circle, angles in degrees, 0 = right, clockwise.</td></tr>
+    <tr><td><code>g.path('M 0 0 L 10 10 Z')</code></td><td>An SVG path (M L H V C Q Z).</td></tr>
+    <tr><td><code>g.text(s, x, y, options)</code></td><td><code>size</code>, <code>font</code> (<code>'title'</code>, <code>'caps'</code>,
+      <code>'body'</code>, a Windows font name, or a font file in the folder), <code>weight</code>, <code>italic</code>,
+      <code>align</code> (left, center, right), <code>baseline</code> (top, middle, bottom, alphabetic), <code>width</code>
+      (cut with … beyond it), <code>spacing</code>, <code>caps</code>.</td></tr>
+    <tr><td><code>g.image(name, x, y, w, h, options)</code></td><td><code>'cover'</code> or a picture file. <code>fit</code>
+      (cover, contain, fill), <code>opacity</code>, <code>radius</code>.</td></tr>
+    <tr><td><code>g.texture(name, opacity)</code></td><td>A picture tiled over the whole page (paper, grain, canvas).</td></tr>
+    <tr><td><code>g.save()</code>, <code>g.restore()</code></td><td>Keep and bring back the colours, moves and clipping.</td></tr>
+    <tr><td><code>g.translate</code>, <code>g.rotate(deg)</code>, <code>g.scale</code></td><td>Move, turn and size what follows.</td></tr>
+    <tr><td><code>g.alpha(a)</code></td><td>See-through, 0 to 1, for what follows.</td></tr>
+    <tr><td><code>g.blend(mode)</code></td><td>normal, multiply, screen, overlay, add, darken, lighten, soft-light, color-dodge, difference.</td></tr>
+    <tr><td><code>g.clip(x, y, w, h, radius)</code></td><td>Only draw inside this rectangle (until restore).</td></tr>
+    <tr><td><code>g.layer(key, fn)</code></td><td>Draw with <code>fn(g)</code> once and reuse the picture while <code>key</code> stays the same.
+      Put everything the layer depends on in the key, for example <code>'paper' + song.title + g.width</code>.</td></tr>
+  </table></div>
+  <p>Colours are <code>"#rrggbb"</code>, <code>"#rrggbbaa"</code>, <code>"rgba(r, g, b, a)"</code> or a name such as
+  <code>"white"</code>. Calls can be chained: <code>g.fill(c).rect(…)</code>.</p>
+
+  <h3>Asking Drift with drift</h3>
+  <div class="table"><table>
+    <tr><th>call</th><th>what it does</th></tr>
+    <tr><td><code>drift.seek(f)</code></td><td>Move to <code>f</code> (0 to 1) of the song.</td></tr>
+    <tr><td><code>drift.playPause()</code>, <code>drift.next()</code>, <code>drift.previous()</code></td><td>The player.</td></tr>
+    <tr><td><code>drift.like()</code>, <code>drift.lyrics()</code>, <code>drift.calm()</code></td><td>Like the song, open the lyrics, calm view on/off.</td></tr>
+    <tr><td><code>drift.play(i)</code></td><td>Play song <code>i</code> of <code>song.next</code>.</td></tr>
+    <tr><td><code>drift.cursor(kind)</code>, <code>drift.tip(text)</code></td><td>The mouse pointer (arrow, hand, grab, grabbing, cross, text) and a tooltip.</td></tr>
+    <tr><td><code>drift.redraw()</code></td><td>Ask for another picture now.</td></tr>
+    <tr><td><code>drift.mix(a, b, t)</code>, <code>drift.alpha(c, a)</code>, <code>drift.lighter(c, t)</code>, <code>drift.darker(c, t)</code>, <code>drift.rgba(r, g, b, a)</code></td><td>Colour helpers (hex or rgba colours).</td></tr>
+    <tr><td><code>drift.noise(x, y, z)</code></td><td>Smooth random 0 to 1: the same input always gives the same value. Good for brush edges, paper, wobble.</td></tr>
+    <tr><td><code>drift.random(seed)</code></td><td>A random-number function that repeats for the same seed (use the song title: each song gets its own picture).</td></tr>
+    <tr><td><code>drift.measure(text, options)</code>, <code>drift.imageSize(name)</code></td><td>How wide a text will be; how big a picture is.</td></tr>
+    <tr><td><code>drift.clamp</code>, <code>drift.lerp</code>, <code>drift.ease</code></td><td>Small maths helpers.</td></tr>
+  </table></div>
+
+  <h3>Keeping it light</h3>
+  <ul>
+    <li>Keep <code>fps = 0</code> unless the room really moves. Drift then draws about four times a second while a song plays.</li>
+    <li>Put what does not change every frame (paper, a wall, the whole song's shape) in <code>g.layer</code>.</li>
+    <li>One picture can have up to 30 000 drawing steps, and each call may take a quarter of a second. Beyond that,
+      Drift stops the call; after three stops it pauses the sketch and says so.</li>
+  </ul>
+
+  <h3>Files</h3>
+  <p>Pictures: PNG, JPG, WEBP or BMP, 8 MB each. Fonts: .ttf or .otf. A whole sketch: 24 MB and 24 files at most,
+  all in one folder (no sub-folders). File names use letters, numbers, spaces, dots and dashes. When importing,
+  Drift checks that every picture and font really is one and leaves anything else out.</p>
+</section>
+
+<section>
+  <h2>Before you share it</h2>
+  <ul class="check">
+    <li>It works with the five test covers, a song with no cover, nothing playing, and the calm view.</li>
+    <li>The title and the sung line read clearly, and words stay clear of the menu and the player.</li>
+    <li>The song's progress can be seen, and the room is comfortable after an hour at night.</li>
+    <li>You made the pictures or may share them; the font's licence allows sharing.</li>
+    <li><code>name</code>, <code>by</code> and <code>about</code> are filled in.</li>
+  </ul>
+</section>
+
+</div>
+</main>
+<footer><div class="wrap">Drift keeps this guide in its Sketches folder, next to your sketches.</div></footer>
+</body>
+</html>

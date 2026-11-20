@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.log
+config.json
+.music/
+core/target/

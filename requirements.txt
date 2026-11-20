@@ -1,0 +1,6 @@
+PyQt6==6.9.1
+yt-dlp>=2026.10.26
+ytmusicapi==1.12.4
+mutagen==1.47.0
+pyinstaller==6.3.0
+pefile==2023.2.7
