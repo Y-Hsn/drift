@@ -1010,15 +1010,18 @@ class Turntable(QWidget):
         W, H = max(1, self.width()), max(1, self.height())
         pad = max(24, int(W * 0.05))
         self.g = g = {'W': W, 'H': H, 'pad': pad}
-        dw = min((H - TOP - 64) * RATIO, W * 0.6)
-        wide = W >= H * 1.05 and W - dw - pad * 2.1 >= 400      # the wall label needs room beside the deck
+        # One look per window shape: every landscape window has the deck on the left and the wall label beside it (the
+        # label column always wide enough for the whole player); only tall or half-screen windows stack.
+        label_w = min(620, max(420, W * 0.36))
+        wide = W >= H * 1.15 and W >= 1000
         g['wide'] = wide
         if self.calm:
             dh = min(H - TOP - 150, (W - 2 * pad) / RATIO)
             rect = QRectF((W - dh * RATIO) / 2, TOP + max(10, (H - TOP - 120 - dh) / 2), dh * RATIO, dh)
             info = QRectF(pad, rect.bottom() + 30, W - 2 * pad, H - rect.bottom() - 40)
         elif wide:                                   # room up and to the left for the sleeve on the desk
-            dw = min((H - TOP - 40) / 1.25 * RATIO, W * 0.5)
+            by_width = (W - pad * 2.1 - label_w) / (1 + 0.2 / RATIO)      # what is left beside the label column
+            dw = min((H - TOP - 40) / 1.25 * RATIO, by_width)
             dh = dw / RATIO
             rect = QRectF(pad + dh * 0.2, TOP + (H - TOP - dh) / 2 + dh * 0.11, dw, dh)
             out = SLEEVE_OUT

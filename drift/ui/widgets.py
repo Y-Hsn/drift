@@ -779,6 +779,8 @@ class Dock(QWidget):
         rw = QWidget()
         rw.setLayout(right)
         rw.setMinimumWidth(150)
+        self.sides = (left, buttons, right)
+        self.row, self.lw = row, lw
         row.addWidget(lw, 3)
         row.addWidget(cw, 0)
         row.addWidget(rw, 3)
@@ -914,6 +916,7 @@ class Dock(QWidget):
         for w in (self.cover, self.title, self.artist):
             w.setVisible(not lake)
         self.col.setContentsMargins(12, 0, 12, 0) if lake else self.col.setContentsMargins(22, 14, 18, 10)
+        self._fit()
         self.update()
 
     def paintEvent(self, e):
@@ -923,13 +926,48 @@ class Dock(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.look.paint_dock(p, self)
 
-    def resizeEvent(self, e):
+    def _fit(self):
         w = self.width()
-        self.volume.setVisible(w > 900)
-        self.lyrics.setVisible(w > 640)
-        self.time.setVisible(w > 720)
-        self.shuffle.setVisible(w > 560)
-        self.repeat.setVisible(w > 560)
+        if self.mode == 'strip':
+            self._centred(True)
+            self.volume.setVisible(w > 900)
+            self.lyrics.setVisible(w > 640)
+            self.time.setVisible(w > 720)
+            self.shuffle.setVisible(w > 560)
+            self.repeat.setVisible(w > 560)
+            return
+        # 'lake' is only the controls: centred if they all fit, else packed after the heart, and only then dropping the
+        # least needed first
+        drop = ((self.volume,), (self.time,), (self.lyrics,), (self.shuffle, self.repeat))
+        for group in drop:
+            for b in group:
+                b.setVisible(True)
+        left, mid, right = self.sides
+        m = self.col.contentsMargins()
+
+        def need(centred):
+            for lay in self.sides:
+                lay.invalidate()
+            lw, rw = left.minimumSize().width(), right.minimumSize().width()
+            sides = 2 * max(170, lw, rw) if centred else lw + rw
+            return sides + mid.minimumSize().width() + 2 * 12 + m.left() + m.right()
+        self._centred(True)
+        if need(True) <= w:
+            return
+        self._centred(False)
+        for group in drop:
+            if need(False) <= w:
+                break
+            for b in group:
+                b.setVisible(False)
+
+    def _centred(self, on):
+        self.lw.setMinimumWidth(170 if on else 0)
+        self.row.setStretch(0, 3 if on else 0)
+        self.row.setStretch(2, 3 if on else 1)
+
+    def resizeEvent(self, e):
+        self._fit()
         if self.engine.current and self.mode == 'strip':
             self.show_track(self.engine.current)
         super().resizeEvent(e)
