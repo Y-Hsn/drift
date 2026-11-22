@@ -113,6 +113,9 @@ def main(argv=None):
     win.show()
     engine.restore_session()
     engine.start()
+    if store.get('resume_after_update'):       # just updated: carry on with the song, where it was
+        store.set('resume_after_update', False)
+        QTimer.singleShot(900, lambda: engine.playing or engine.current and engine.toggle())
     QTimer.singleShot(300, lambda: windows.live().rescan(quiet=True))
     rc = app.exec()
     win = windows.live()

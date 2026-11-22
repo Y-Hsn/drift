@@ -6,6 +6,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import time
 
 from PyQt6.QtCore import QByteArray, QEasingCurve, QPoint, QRect, QRectF, Qt, QTimer, QVariantAnimation
 from PyQt6.QtGui import QGuiApplication, QKeySequence, QPainter, QShortcut
@@ -258,6 +259,15 @@ class Window(QMainWindow):
         self.toast.setFont(theme.font(10, 500))
         self.toast.hide()
         self.toast_timer = QTimer(self, singleShot=True, interval=3500, timeout=self.toast.hide)
+        self.update_pill = QPushButton(self)          # "Drift 1.0.3 is ready · Update": one click, then a restart
+        self.update_pill.setStyleSheet(f'QPushButton {{ background: rgba(10,10,14,0.92); color: {theme.TEXT}; '
+                                       f'border: 1px solid {theme.EDGE}; border-radius: 17px; padding: 9px 20px; }} '
+                                       f'QPushButton:hover {{ border-color: {theme.TEXT}; }}')
+        self.update_pill.setFont(theme.font(10, 500))
+        self.update_pill.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_pill.clicked.connect(self.update_now)
+        self.update_pill.hide()
+        QTimer.singleShot(8000, self.check_update)
         self.trim_timer = QTimer(self, singleShot=True, interval=20_000, timeout=self.trim)
         self._wire()
         self._shortcuts()
@@ -604,6 +614,72 @@ class Window(QMainWindow):
         if hasattr(self, 'toast'):
             bottom = self.bar.y() if self.bar.isVisible() else self.height()
             self.toast.move((self.width() - self.toast.width()) // 2, bottom - self.toast.height() - 18)
+            if self.toast.isVisible():
+                bottom = self.toast.y() - 8
+            self.update_pill.move((self.width() - self.update_pill.width()) // 2,
+                                  bottom - self.update_pill.height() - 18)
+
+    # ---- updates (drift/update.py) ----------------------------------------------------------------------------------
+    def check_update(self, manual=False):
+        """Quietly, at most every 6 h while online; from Settings on demand."""
+        from .. import update
+        if update.found:
+            return self._update_ready(update.found)
+        if not update.can_update():
+            return manual and self.say('Updates come through the Drift.exe from the releases page.')
+        if not manual and (not self.engine.online or not update.due(self.store)):
+            return
+
+        def answered(info):
+            self.store.set('update_checked', time.time())
+            update.found = info
+            if info:
+                self._update_ready(info)
+            elif manual:
+                self.say(f'Drift {update.__version__} is the newest.')
+
+        tasks.run(update.latest, done=answered,
+                  failed=lambda e: manual and self.say('Could not reach GitHub to look for updates.'))
+
+    def _update_ready(self, info):
+        self.update_pill.setEnabled(True)
+        self.update_pill.setText(f'Drift {info["version"]} is ready  ·  Update')
+        self.update_pill.adjustSize()
+        self.update_pill.show()
+        self.update_pill.raise_()
+        self._place_toast()
+
+    def update_now(self):
+        from .. import update
+        info = update.found
+        if not info or not self.update_pill.isEnabled():
+            return
+        self.update_pill.setEnabled(False)
+
+        def step(text):
+            self.update_pill.setText(text)
+            self.update_pill.adjustSize()
+            self._place_toast()
+
+        def got(new):
+            step('Restarting…')
+            from ..core import read_port
+            core = read_port()
+            self.store.set('resume_after_update', bool(self.engine.playing))
+            try:
+                update.apply(new, info['version'], [os.getpid(), core[2] if core else 0])
+            except OSError as e:
+                self.store.set('resume_after_update', False)
+                return failed(e)
+            QTimer.singleShot(150, lambda: live().quit(keep_music=False))
+
+        def failed(e):
+            self.say(f'The update did not finish: {e}')
+            self._update_ready(info)
+
+        step(f'Getting Drift {info["version"]}…')
+        tasks.run(update.fetch, info, done=got, failed=failed,
+                  progress=lambda f: step(f'Getting Drift {info["version"]}…  {int(f * 100)}%'))
 
     # ---- keys -----------------------------------------------------------------------------------------------------
     def _shortcuts(self):

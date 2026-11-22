@@ -82,6 +82,15 @@ class SettingsPage(Page):
             row.addWidget(p)
         row.addStretch()
         b.addLayout(row)
+        from .. import __version__
+        self.section('Drift', f'Version {__version__}. Drift looks for a new version now and then, and asks '
+                              'before it updates: one click, a quick restart, and the song carries on.')
+        row = QHBoxLayout()
+        look = pill('Look for updates', True)
+        look.clicked.connect(lambda: win.check_update(manual=True))
+        row.addWidget(look)
+        row.addStretch()
+        b.addLayout(row)
         self.section('Keys', 'Media keys work everywhere, even with the window closed.')
         b.addWidget(flow([KeyCap(k, m) for k, m in KEYS], 10))
         b.addStretch()
