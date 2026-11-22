@@ -13,6 +13,25 @@ from .store import Track, norm
 
 SAVE_AT = 0.6          # a streamed song played this far is saved for offline (when save_played is on)
 SKIP_BEFORE = 0.35     # leaving a song before this point counts as a skip (taste)
+PLAY_LOG_LINES = 300   # play.log keeps the newest lines only
+
+
+def note_play_failure(track, why, online_now, log=None):
+    """One line in %LOCALAPPDATA%/Drift/play.log per song that would not play: the reason, so a user can send it."""
+    import platform
+    from .store import DATA
+    from . import __version__
+    log = log or DATA / 'play.log'
+    line = '\t'.join([time.strftime('%Y-%m-%d %H:%M:%S'), f'Drift {__version__}', f'Windows {platform.version()}',
+                      'online' if online_now else 'offline', getattr(track, 'source', '') or '',
+                      getattr(track, 'page', '') or getattr(track, 'path', '') or '', getattr(track, 'title', '') or '',
+                      ' '.join(str(why or 'no reason given').split())[:400]])
+    try:
+        old = log.read_text(encoding='utf-8').splitlines()[-(PLAY_LOG_LINES - 1):] if log.is_file() else []
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text('\n'.join(old + [line]) + '\n', encoding='utf-8')
+    except OSError:
+        pass
 
 
 class Engine(QObject):
@@ -206,6 +225,7 @@ class Engine(QObject):
             online.forget_stream(t.uid)
 
         def judged(on):
+            note_play_failure(t, ev.get('msg'), on)
             self._set_online(on)
             stuck = on and t and online.blocked(t)
             if stuck or not on:

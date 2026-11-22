@@ -78,6 +78,7 @@ def build(ico):
     args = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--log-level', 'WARN', '--windowed',
             '--onedir', '--name', 'Drift', '--icon', str(ico), '--add-data', f'{ico};assets',
             '--collect-data', 'ytmusicapi', '--collect-submodules', 'yt_dlp.extractor',
+            '--collect-data', 'yt_dlp_ejs', '--collect-submodules', 'yt_dlp_ejs',   # YouTube's challenge solver scripts
             '--distpath', str(ROOT / 'dist'), '--workpath', str(ROOT / 'build'), '--specpath', str(ROOT / 'build')]
     for m in EXCLUDE:
         args += ['--exclude-module', m]
@@ -86,6 +87,8 @@ def build(ico):
     subprocess.run(args + [str(entry)], check=True, cwd=ROOT,
                    creationflags=0x00004000)   # BELOW_NORMAL_PRIORITY_CLASS: the PC stays smooth while it builds
     shutil.copy2(core, ROOT / 'dist' / 'Drift' / 'drift-core.exe')
+    for name in ('qjs.exe', 'qjs-LICENSE.txt'):   # QuickJS-ng 0.18.0 (MIT), see online.js_runtimes
+        shutil.copy2(ROOT / 'vendor' / name, ROOT / 'dist' / 'Drift' / name)
     prune(ROOT / 'dist' / 'Drift' / '_internal')
     return ROOT / 'dist' / 'Drift'
 

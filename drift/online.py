@@ -19,6 +19,11 @@ _streams = {}                       # uid -> (url, expires)
 _lock = threading.Lock()
 _yt_blocked_until = 0.0             # YouTube said "confirm you're not a bot" / 429: leave it alone for a while
 BLOCK_PAUSE = 30 * 60
+_js_until = 0.0                     # YouTube shut the JavaScript-free route here: use the JS runtime straight away
+# Audio-only files drift-core can decode (symphonia: AAC/ALAC in MP4, MP3, Vorbis). Never Opus/WebM or a video file:
+# the core cannot play those, and the song would fail with "cannot be played right now".
+PLAYABLE = ('bestaudio[ext=m4a][protocol^=http]/bestaudio[acodec^=mp4a][protocol^=http]/'
+            'bestaudio[acodec=mp3][protocol^=http]/bestaudio[acodec=vorbis][protocol^=http]')
 
 
 def blocked(track=None):
@@ -41,6 +46,50 @@ def _ydl(**options):
             'extractor_retries': 1, 'skip_download': True, 'noplaylist': True, 'logger': _Quiet()}
     base.update(options)
     return yt_dlp.YoutubeDL(base)
+
+
+def _bundled_qjs():
+    """QuickJS-ng (MIT, ~2 MB) shipped next to Drift.exe; vendor/ when run from source."""
+    import sys
+    base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent.parent / 'vendor'
+    q = base / 'qjs.exe'
+    return q if q.is_file() else None
+
+
+def js_runtimes():
+    """JavaScript programs yt-dlp may use to answer YouTube's player challenges: a fast one already on the PC
+    (deno/node/bun), plus the bundled QuickJS, which always works but takes ~10 s per song."""
+    import shutil
+    found = {name: {} for name in ('deno', 'node', 'bun') if shutil.which(name)}
+    q = _bundled_qjs()
+    if q:
+        found['quickjs'] = {'path': str(q)}
+    return found
+
+
+def _extract(url, download=False, **options):
+    """yt-dlp info for one song. First without JavaScript (fast: YouTube's 'visionos' route only); if YouTube
+    refuses that route on this connection, again with a JavaScript runtime, which opens its other routes.
+    Without this fallback a PC where the one JS-less route is shut can play or save nothing. Once the fast try
+    failed and the slow one worked, later songs go straight to the slow one (for an hour)."""
+    global _js_until
+    runtimes = js_runtimes()
+    fast_failed = False
+    if not runtimes or time.time() >= _js_until:
+        with _ydl(js_runtimes={}, **options) as y:
+            try:
+                info = y.extract_info(url, download=download)
+                return info, (Path(y.prepare_filename(info)) if download else None)
+            except Exception as e:
+                _note_block(e)
+                if blocked() or not runtimes:
+                    raise
+                fast_failed = True
+    with _ydl(js_runtimes=runtimes, **options) as y:
+        info = y.extract_info(url, download=download)
+        if fast_failed:          # the fast route is shut here, not just this one song gone: skip it for a while
+            _js_until = time.time() + 3600
+        return info, (Path(y.prepare_filename(info)) if download else None)
 
 
 class _Quiet:
@@ -337,8 +386,7 @@ def stream(track):
     if blocked(track):
         raise RuntimeError('youtube is blocking streams for now')
     try:
-        with _ydl(format='bestaudio[ext=m4a][protocol^=http]/bestaudio[protocol^=http][acodec!=none]/best[protocol^=http]') as y:
-            info = y.extract_info(track.page, download=False)
+        info, _ = _extract(track.page, format=PLAYABLE)
     except Exception as e:
         _note_block(e)
         raise
@@ -406,11 +454,15 @@ def download(track, folder, progress=lambda done, total: None):
         if d.get('status') == 'downloading':
             progress(d.get('downloaded_bytes') or 0, d.get('total_bytes') or d.get('total_bytes_estimate') or 0)
 
-    opts = {'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio', 'outtmpl': str(folder / (stem + '.%(ext)s')),
+    # audio Drift can play back later (never Opus/WebM: the core cannot decode it)
+    opts = {'format': 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=mp3]/bestaudio[acodec=vorbis]',
+            'outtmpl': str(folder / (stem + '.%(ext)s')),
             'skip_download': False, 'progress_hooks': [hook], 'overwrites': False, 'continuedl': True}
-    with _ydl(**opts) as y:
-        info = y.extract_info(track.page, download=True)
-        path = Path(y.prepare_filename(info))
+    try:
+        info, path = _extract(track.page, download=True, **opts)
+    except Exception as e:
+        _note_block(e)
+        raise
     if not path.is_file():
         found = sorted(folder.glob(_glob_escape(stem) + '.*'), key=lambda p: p.stat().st_mtime, reverse=True)
         found = [p for p in found if not p.name.endswith('.part')]

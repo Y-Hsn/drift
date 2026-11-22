@@ -53,4 +53,4 @@ Drift doesn't host or ship any music. Respect the terms of the services you use 
 
 ## Licence
 
-GPL-3.0 (see [LICENSE](LICENSE)). Drift uses PyQt6 (GPL-3.0), Qt (LGPL-3.0), yt-dlp (Unlicense), ytmusicapi (MIT), mutagen (GPL-2.0+), rodio (MIT/Apache-2.0) and symphonia (MPL-2.0).
+GPL-3.0 (see [LICENSE](LICENSE)). Drift uses PyQt6 (GPL-3.0), Qt (LGPL-3.0), yt-dlp (Unlicense), ytmusicapi (MIT), mutagen (GPL-2.0+), rodio (MIT/Apache-2.0), symphonia (MPL-2.0) and QuickJS-ng (MIT, `vendor/qjs.exe`, used by yt-dlp for YouTube).

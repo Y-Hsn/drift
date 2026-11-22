@@ -112,3 +112,82 @@ class Offline(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PlayLog(unittest.TestCase):
+    def test_failure_is_written_with_reason_and_capped(self):
+        from pathlib import Path
+        from drift import engine
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / 'play.log'
+            t = Track(uid='yt:abc', title='Song A', source='youtube', page='https://music.youtube.com/watch?v=abc')
+            for _ in range(engine.PLAY_LOG_LINES + 5):
+                engine.note_play_failure(t, 'ERROR: Requested format\n is not available', True, log=log)
+            lines = log.read_text(encoding='utf-8').splitlines()
+            self.assertEqual(len(lines), engine.PLAY_LOG_LINES)
+            self.assertIn('Song A', lines[-1])
+            self.assertIn('Requested format is not available', lines[-1])
+            self.assertIn('watch?v=abc', lines[-1])
+
+    def test_never_picks_a_format_the_core_cannot_play(self):
+        self.assertNotIn('opus', online.PLAYABLE)
+        self.assertNotIn('best[', online.PLAYABLE.replace('bestaudio[', ''))
+
+
+class JsFallback(unittest.TestCase):
+    """YouTube can shut the one JavaScript-free route on a connection: then every song must go through a JS runtime."""
+
+    def _fake(self, fail_without_js):
+        calls = []
+
+        class Y:
+            def __init__(self, opts): self.opts = opts
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def prepare_filename(self, info): return 'x.m4a'
+            def extract_info(self, url, download=False):
+                calls.append(bool(self.opts.get('js_runtimes')))
+                if fail_without_js and not self.opts.get('js_runtimes'):
+                    raise RuntimeError('Requested format is not available')
+                return {'url': 'https://a', 'id': 'v'}
+        return calls, (lambda **o: Y(o))
+
+    def setUp(self):
+        self._saved = (online._ydl, online.js_runtimes, online._js_until, online._yt_blocked_until)
+        online.js_runtimes = lambda: {'quickjs': {'path': 'qjs.exe'}}
+        online._js_until = online._yt_blocked_until = 0.0
+
+    def tearDown(self):
+        online._ydl, online.js_runtimes, online._js_until, online._yt_blocked_until = self._saved
+
+    def test_fast_route_first_when_it_works(self):
+        calls, online._ydl = self._fake(False)
+        online._extract('u')
+        online._extract('u')
+        self.assertEqual(calls, [False, False])
+
+    def test_shut_route_falls_back_then_goes_straight_to_js(self):
+        calls, online._ydl = self._fake(True)
+        info, _ = online._extract('u')
+        self.assertEqual(info['url'], 'https://a')
+        online._extract('u')
+        self.assertEqual(calls, [False, True, True])
+
+    def test_bot_check_is_not_retried(self):
+        calls, _ = self._fake(True)
+
+        class Bot(Exception):
+            pass
+
+        def ydl(**o):
+            class Y:
+                def __enter__(s): return s
+                def __exit__(s, *a): return False
+                def extract_info(s, url, download=False):
+                    calls.append(bool(o.get('js_runtimes')))
+                    raise Bot("Sign in to confirm you're not a bot")
+            return Y()
+        online._ydl = ydl
+        with self.assertRaises(Bot):
+            online._extract('u')
+        self.assertEqual(calls, [False])
