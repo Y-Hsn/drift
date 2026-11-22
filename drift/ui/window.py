@@ -464,7 +464,7 @@ class Window(QMainWindow):
             self.playlist_id = playlist
             name = dict(self.store.playlists()).get(playlist, 'Playlist')
             self.playlist_page.heading.setText(name)
-            self.playlist_page.set_tracks(self.store.playlist_tracks(playlist))
+            self.playlist_page.set_tracks(self.store.playlist_tracks(playlist), self.store.playlist_note(playlist))
         elif key == 'playlists':
             self.playlists_page.refresh()
         elif key == 'settings':

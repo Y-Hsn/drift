@@ -43,8 +43,27 @@ def _note_block(err):
         _yt_blocked_until = time.time() + BLOCK_PAUSE
 
 
+_player_cache_on = False
+
+
+def _cache_player_work():
+    """yt-dlp's JavaScript route spends ~9 of its ~10 s preparing YouTube's player code, again for every song.
+    yt-dlp can keep that prepared code on disk (one copy per player version), but ships with it off; on, every
+    song after the first takes ~2.5 s."""
+    global _player_cache_on
+    if _player_cache_on:
+        return
+    _player_cache_on = True
+    try:
+        from yt_dlp.extractor.youtube.jsc._builtin import ejs
+        ejs.EJSBaseJCP._ENABLE_PREPROCESSED_PLAYER_CACHE = True
+    except (ImportError, AttributeError):
+        pass
+
+
 def _ydl(**options):
     import yt_dlp
+    _cache_player_work()
     base = {'quiet': True, 'no_warnings': True, 'noprogress': True, 'socket_timeout': 15, 'retries': 2,
             'extractor_retries': 1, 'skip_download': True, 'noplaylist': True, 'logger': _Quiet()}
     base.update(options)
@@ -61,7 +80,7 @@ def _bundled_qjs():
 
 def js_runtimes():
     """JavaScript programs yt-dlp may use to answer YouTube's player challenges: a fast one already on the PC
-    (deno/node/bun), plus the bundled QuickJS, which always works but takes ~10 s per song."""
+    (deno/node/bun), plus the bundled QuickJS, which always works (~2.5 s per song, ~10 s for the first)."""
     import shutil
     found = {name: {} for name in ('deno', 'node', 'bun') if shutil.which(name)}
     q = _bundled_qjs()
@@ -73,9 +92,9 @@ def js_runtimes():
 def _extract(url, download=False, **options):
     """yt-dlp info for one song. Always the fast way first (no JavaScript: YouTube's 'visionos' route, ~2 s). Only
     if that fails for this song, again with a JavaScript runtime (deno/node/bun if on the PC, else the bundled
-    QuickJS: ~10 s or more on a slow PC), which opens YouTube's other routes. Only when the fast way failed for
-    FAST_SHUT_AFTER songs in a row (the route is shut on this connection, not one odd song) is it skipped, and even
-    then tried again every PROBE_EVERY seconds."""
+    QuickJS: ~2.5 s once its player work is cached, ~10 s the first time), which opens YouTube's other routes.
+    Only when the fast way failed for FAST_SHUT_AFTER songs in a row (the route is shut on this connection, not one
+    odd song) is it skipped, and even then tried again every PROBE_EVERY seconds."""
     global _fast_misses, _probe_at
     runtimes = js_runtimes()
     shut = bool(runtimes) and _fast_misses >= FAST_SHUT_AFTER and time.time() < _probe_at
@@ -91,13 +110,28 @@ def _extract(url, download=False, **options):
                 if blocked() or not runtimes:
                     raise
                 fast_failed = True
+    started = time.time()
     with _ydl(js_runtimes=runtimes, **options) as y:
         info = y.extract_info(url, download=download)
+        _note_slow(info, time.time() - started)
         if fast_failed:
             _fast_misses += 1
             if _fast_misses >= FAST_SHUT_AFTER:
                 _probe_at = time.time() + PROBE_EVERY
         return info, (Path(y.prepare_filename(info)) if download else None)
+
+
+SLOW_LOOKUP = 8.0
+
+
+def _note_slow(info, seconds):
+    """A song that took long to find goes in play.log too, so a slow PC can be told apart from a slow route."""
+    if seconds < SLOW_LOOKUP:
+        return
+    from types import SimpleNamespace
+    from .engine import note_play_failure
+    song = SimpleNamespace(source='youtube', page=info.get('webpage_url') or '', title=info.get('title') or '')
+    note_play_failure(song, f'slow lookup {seconds:.1f} s (JavaScript route)', True)
 
 
 class _Quiet:

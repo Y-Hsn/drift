@@ -18,7 +18,7 @@ EXCLUDE = ['tkinter', 'PyQt6.QtWebEngineCore', 'PyQt6.QtWebEngineWidgets',
            'PyQt6.QtSql', 'PyQt6.QtTest', 'PyQt6.QtOpenGL', 'PyQt6.QtDesigner', 'PyQt6.QtHelp', 'numpy', 'PIL',
            'matplotlib', 'scipy', 'pandas', 'IPython', 'Cryptodome', 'websockets', 'brotli',
            'PyQt6.QtMultimedia', 'PyQt6.QtMultimediaWidgets', 'PyQt6.QtSpatialAudio',   # the core makes the sound
-           'pygame']
+           'pygame', 'cryptography', 'bcrypt', 'OpenSSL', 'secretstorage', 'curl_cffi']   # optional extras of requests/yt-dlp
 SKETCH_FILES = ('README.md', 'guide.html', 'starter.js')
 KEEP_QT = ('QtCore', 'QtGui', 'QtWidgets', 'QtNetwork', 'QtSvg', 'QtQml')   # QtQml: only QJSEngine, for sketch.js
 ENTRY = """import sys
@@ -103,7 +103,9 @@ def prune(internal):
         print('prune skipped (pip install pefile)')
         return
     qt = internal / 'PyQt6' / 'Qt6'
-    for junk in (qt / 'plugins' / 'imageformats' / 'qpdf.dll', qt / 'qml', qt / 'translations'):
+    formats = qt / 'plugins' / 'imageformats'
+    for junk in (*(formats / f'{n}.dll' for n in ('qpdf', 'qtiff', 'qicns', 'qtga', 'qwbmp')),
+                 qt / 'plugins' / 'tls' / 'qopensslbackend.dll', qt / 'qml', qt / 'translations'):
         shutil.rmtree(junk, ignore_errors=True) if junk.is_dir() else junk.unlink(missing_ok=True)
     dlls = {p.name.lower(): p for p in (qt / 'bin').glob('*.dll')}
     todo = [internal / 'PyQt6' / f'{m}.pyd' for m in KEEP_QT] + list((qt / 'plugins').rglob('*.dll'))

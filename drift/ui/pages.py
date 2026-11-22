@@ -170,6 +170,49 @@ def wire_list(view, win):
 
 
 # ---- explore ---------------------------------------------------------------------------------------------------
+class LinkCard(QWidget):
+    """A pasted playlist or album: its name and description, and what to do with it (listen, keep it as a Drift
+    playlist, or keep it and download every song)."""
+
+    def __init__(self):
+        super().__init__()
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 6, 0, 4)
+        col.setSpacing(4)
+        self.eyebrow = eyebrow('')
+        self.title = label('', 20, 700, display=True)
+        self.title.setWordWrap(True)
+        self.note = label('', 10, 400, theme.MUTED)
+        self.note.setWordWrap(True)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 8, 0, 0)
+        row.setSpacing(10)
+        self.listen = pill('Listen')
+        self.keep = pill('Save as playlist', ghost=True)
+        self.download = pill('Save and download', ghost=True)
+        for b in (self.listen, self.keep, self.download):
+            row.addWidget(b)
+        row.addStretch()
+        for w in (self.eyebrow, self.title, self.note):
+            col.addWidget(w)
+        col.addLayout(row)
+
+    def show_about(self, about):
+        kind = 'album' if about.get('kind') == 'album' else 'playlist'
+        total = about.get('total') or 0
+        self.eyebrow.setText(' · '.join(filter(None, [f"{about.get('source') or ''} {kind}".strip(),
+                                                      f'{total} songs' if total else ''])).upper())
+        self.title.setText(about.get('name') or kind.title())
+        self.note.setText(about.get('note') or '')
+        self.note.setVisible(bool(about.get('note')))
+        self.listen.setText('Listen')
+        self.keep.setText('Save as playlist')
+        self.download.setText('Save and download')
+        for b in (self.listen, self.keep, self.download):
+            b.setEnabled(True)
+        self.show()
+
+
 class ExplorePage(Page):
     moods_cache = None
 
@@ -206,7 +249,14 @@ class ExplorePage(Page):
         self.body.addWidget(self.chips)
         self.status = label('', 10, 400, theme.MUTED)
         self.status.setWordWrap(True)
+        self.card = LinkCard()
+        self.card.hide()
+        self.card.listen.clicked.connect(self._link_listen)
+        self.card.keep.clicked.connect(self._link_keep)
+        self.card.download.clicked.connect(self._link_download)
+        self.body.addWidget(self.card)
         self.body.addWidget(self.status)
+        self._link = None        # the pasted list being read: about, songs found, what the user chose
         self.nothing = Quiet()
         self.nothing.hide()
         self.body.addWidget(self.nothing)
@@ -236,11 +286,15 @@ class ExplorePage(Page):
         self.body.addWidget(self.ideas)
         self.body.addStretch()
 
+    def _stop_link(self):
+        """A new search stops reading the pasted link, unless it is being saved: that one finishes on its own."""
+        if self._link_cancel and not (self._link and self._link['pid']):
+            self._link_cancel.set()
+
     def _search_edited(self, text):
         if text.strip() != self.query:
             self._stamp = 0
-            if self._link_cancel:
-                self._link_cancel.set()
+            self._stop_link()
         if not text.strip():
             self._reset()
 
@@ -250,6 +304,7 @@ class ExplorePage(Page):
         self.results.hide()
         self.actions.hide()
         self.nothing.hide()
+        self.card.hide()
         self.status.setText('')
         self.ideas.show()
 
@@ -448,12 +503,12 @@ class ExplorePage(Page):
         query = query.strip()
         if not query:
             return
-        if self._link_cancel:
-            self._link_cancel.set()
+        self._stop_link()
         self.query = query
         self.search.setText(query)
         self.ideas.hide()
         self.nothing.hide()
+        self.card.hide()
         if not self.win.engine.online:      # offline: the songs on this PC answer
             hits = matching(self.win.store.local_tracks(), query)
             self._found(hits, f'On this PC · {songs_line(hits)}',
@@ -483,42 +538,128 @@ class ExplorePage(Page):
         self.actions.hide()
         self.status.setText('Finding a playable recording…')
         cancel = self._link_cancel = Event()
-        found = []
+        link = self._link = {'about': None, 'found': [], 'cancel': cancel, 'listen': False, 'playing': False,
+                             'pid': None, 'download': False, 'done': False}
+        found = link['found']
         engine = self.win.engine
 
-        def matched(track):
-            if self._stamp != stamp:
+        def matched(item):
+            if isinstance(item, dict):          # a playlist or album: show it and let the user choose
+                link['about'] = item['about']
+                if self._stamp == stamp:
+                    self.card.show_about(item['about'])
+                    self.status.setText('Finding the songs…')
                 return
-            track = self.win.store.refresh(track)
-            if not found:
-                engine.play_link(track, cancel)
-            elif engine.active_link is cancel:
-                engine.enqueue([track])
+            track = self.win.store.refresh(item)
+            if link['about'] is None:           # one song: it plays straight away
+                if not found:
+                    engine.play_link(track, cancel)
+                elif engine.active_link is cancel:
+                    engine.enqueue([track])
+                else:
+                    cancel.set()
+                    return
             else:
-                cancel.set()
-                return
+                self._link_took(link, [track])
             found.append(track)
-            self.status.setText(f'{songs_line(found)} · Checking link…')
+            if self._stamp == stamp:
+                total = (link['about'] or {}).get('total')
+                if link['about'] is not None:
+                    self._found(found, f'{len(found)} of {total} found · Finding the rest…' if total else
+                                songs_line(found) + ' · Finding the rest…')
+                    self.actions.hide()
+                else:
+                    self.status.setText(f'{songs_line(found)} · Checking link…')
 
         def done(missing):
+            link['done'] = True
             engine.finish_link(cancel)
+            if link['pid'] and link['about']:
+                self.win.say(f"{link['about']['name']}: {songs_line(found)} saved"
+                             + (' and downloading.' if link['download'] else '.'))
             if self._stamp != stamp:
                 return
             if found:
                 note = f' · {missing} unavailable or unmatched' if missing else ''
                 self._found(found, songs_line(found) + note)
+                if link['about'] is not None:
+                    self.actions.hide()
             else:
+                self.card.hide()
                 self._found([], '', ('No playable match', 'Try a direct YouTube or SoundCloud link.'))
 
         def failed(error):
+            link['done'] = True
             engine.finish_link(cancel)
             if self._stamp == stamp:
                 if found:
                     self._found(found, songs_line(found) + ' · Link loading stopped')
+                    if link['about'] is not None:
+                        self.actions.hide()
                 else:
+                    self.card.hide()
                     self.status.setText('Could not play this link. ' + str(error).split('\n')[0][:140])
 
         tasks.run(links.tracks_from_link, url, cancel, done=done, failed=failed, progress=matched)
+
+    # what the user chose for a pasted list; songs found later follow the same choice
+    def _link_took(self, link, tracks):
+        engine, store = self.win.engine, self.win.store
+        if link['pid']:
+            store.add_to_playlist(link['pid'], tracks)
+        if link['download']:
+            for t in tracks:
+                engine.save(t, quiet=True)
+        if link['listen']:
+            if not link['playing']:
+                engine.play_link(tracks[0], link['cancel'])
+                link['playing'] = True
+                tracks = tracks[1:]
+                if link['done']:
+                    engine.finish_link(link['cancel'])
+            if tracks and engine.active_link is link['cancel']:
+                engine.enqueue(tracks)
+
+    def _link_listen(self):
+        link = self._link
+        if not link or link['listen']:
+            return
+        link['listen'] = True
+        self.card.listen.setText('Listening')
+        self.card.listen.setEnabled(False)
+        if link['found']:
+            self._link_took({**link, 'pid': None, 'download': False}, list(link['found']))
+            link['playing'] = True
+
+    def _link_keep(self):
+        link = self._link
+        if not link or not link['about']:
+            return
+        if link['pid']:
+            self.win.go('playlist', link['pid'])
+            return
+        store = self.win.store
+        link['pid'] = store.new_playlist(store.free_playlist_name(link['about']['name']))
+        store.set_playlist_note(link['pid'], link['about'].get('note') or '')
+        if link['found']:
+            store.add_to_playlist(link['pid'], link['found'])
+        self.win.refresh_playlists()
+        self.card.keep.setText('Open playlist')
+        self.win.say(f"Saved as a playlist: {link['about']['name']}."
+                     + ('' if link['done'] else ' The rest is added as it is found.'))
+
+    def _link_download(self):
+        link = self._link
+        if not link or not link['about'] or link['download']:
+            return
+        if not link['pid']:
+            self._link_keep()
+        link['download'] = True
+        for t in link['found']:
+            self.win.engine.save(t, quiet=True)
+        self.card.download.setText('Downloading')
+        self.card.download.setEnabled(False)
+        self.win.say(f"Downloading {link['about']['name']} for offline.")
 
 
 # ---- a list of songs (library, liked, a playlist, the queue) ------------------------------------------------------

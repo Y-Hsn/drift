@@ -294,6 +294,24 @@ class Store:
                 return cur.lastrowid
             return self.db.execute('select id from playlists where name=?', (name.strip(),)).fetchone()[0]
 
+    def free_playlist_name(self, name):
+        """`name`, or `name 2`, `name 3`... when a playlist already has it (an import never mixes into another)."""
+        name = (name or '').strip() or 'Playlist'
+        taken = {n.casefold() for _, n in self.playlists()}
+        if name.casefold() not in taken:
+            return name
+        n = 2
+        while f'{name} {n}'.casefold() in taken:
+            n += 1
+        return f'{name} {n}'
+
+    def playlist_note(self, pid):
+        return self.get(f'playlist_note:{pid}', '') or ''
+
+    def set_playlist_note(self, pid, note):
+        if note:
+            self.set(f'playlist_note:{pid}', note)
+
     def rename_playlist(self, pid, name):
         with self.lock:
             self.db.execute('update playlists set name=? where id=?', (name.strip(), pid))
@@ -302,6 +320,7 @@ class Store:
         with self.lock:
             self.db.execute('delete from playlist_items where playlist=?', (pid,))
             self.db.execute('delete from playlists where id=?', (pid,))
+            self.db.execute('delete from kv where k=?', (f'playlist_note:{pid}',))
 
     def playlist_tracks(self, pid):
         with self.lock:
