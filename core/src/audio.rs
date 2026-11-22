@@ -311,44 +311,163 @@ fn mmcss() {
     unsafe { AvSetMmThreadCharacteristicsW(name.as_ptr(), &mut idx) };
 }
 
+/// Why the speakers would not open last time (sent to the window with "no sound device").
+static OUTPUT_WHY: Mutex<String> = Mutex::new(String::new());
+/// The speakers picked in Settings by name ("" = whatever Windows uses); gone (unplugged) -> Windows' default.
+static CHOSEN: Mutex<String> = Mutex::new(String::new());
+static RECHECK: AtomicBool = AtomicBool::new(false);
+
+/// Play through `name` ("" = Windows' default); the player switches within ~0.4 s, the song carries on.
+pub fn choose(name: &str) {
+    *CHOSEN.lock().unwrap() = name.to_string();
+    RECHECK.store(true, Ordering::Relaxed);
+}
+
+pub fn chosen() -> String {
+    CHOSEN.lock().unwrap().clone()
+}
+
+/// Names of the speakers/headphones Windows has right now.
+pub fn devices() -> Vec<String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let mut names: Vec<String> = cpal::default_host()
+        .output_devices()
+        .map(|ds| ds.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default();
+    names.dedup();
+    names
+}
+
+fn pick_device() -> Option<cpal::Device> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+    let want = chosen();
+    if !want.is_empty() {
+        if let Some(d) = host.output_devices().ok().and_then(|mut ds| ds.find(|d| d.name().ok().as_deref() == Some(want.as_str()))) {
+            return Some(d);
+        }
+    }
+    host.default_output_device()
+}
+
 fn open_output() -> Option<Output> {
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    let device = cpal::default_host().default_output_device()?;
-    let sup = device.default_output_config().ok()?;
-    let (chans, rate) = (sup.channels(), sup.sample_rate().0);
-    let want = rate * BUFFER_MS / 1000;
-    let frames = match sup.buffer_size() {
-        cpal::SupportedBufferSize::Range { min, max } => want.clamp(*min, (*max).max(*min)),
-        cpal::SupportedBufferSize::Unknown => want,
-    };
-    let build = |size: cpal::BufferSize| -> Option<(cpal::Stream, Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>)> {
-        let (mixer, mut rx) = rodio::dynamic_mixer::mixer::<f32>(chans, rate);
+    match try_output() {
+        Ok(o) => Some(o),
+        Err(why) => {
+            *OUTPUT_WHY.lock().unwrap() = why;
+            None
+        }
+    }
+}
+
+fn output_why() -> String {
+    let why = OUTPUT_WHY.lock().unwrap().clone();
+    if why.is_empty() { "no sound device".into() } else { format!("no sound device ({why})") }
+}
+
+/// The ways to open the speakers, best first: Windows' own mix format, then whatever else the device lists
+/// (float first, stereo first, its own rate or 48/44.1 kHz). Every sample type cpal knows is handled, so a device
+/// set to 24-bit or 32-bit integer ("Studio quality" in Sound settings) plays too.
+fn candidates(device: &cpal::Device) -> Vec<(cpal::SampleFormat, u16, u32, Option<u32>)> {
+    use cpal::traits::DeviceTrait;
+    let mut out = Vec::new();
+    let mut native_rate = 48_000;
+    if let Ok(sup) = device.default_output_config() {
+        let rate = sup.sample_rate().0;
+        native_rate = rate;
+        let want = rate * BUFFER_MS / 1000;
+        let frames = match sup.buffer_size() {
+            cpal::SupportedBufferSize::Range { min, max } => want.clamp(*min, (*max).max(*min)),
+            cpal::SupportedBufferSize::Unknown => want,
+        };
+        out.push((sup.sample_format(), sup.channels(), rate, Some(frames)));
+        out.push((sup.sample_format(), sup.channels(), rate, None));
+    }
+    if let Ok(ranges) = device.supported_output_configs() {
+        let mut more: Vec<_> = ranges
+            .flat_map(|r| {
+                [native_rate, 48_000, 44_100]
+                    .into_iter()
+                    .filter(move |hz| r.min_sample_rate().0 <= *hz && *hz <= r.max_sample_rate().0)
+                    .map(move |hz| (r.sample_format(), r.channels(), hz, None))
+            })
+            .collect();
+        let rank = |f: &cpal::SampleFormat| match f {
+            cpal::SampleFormat::F32 => 0,
+            cpal::SampleFormat::I16 => 1,
+            cpal::SampleFormat::I32 => 2,
+            _ => 3,
+        };
+        more.sort_by_key(|(f, ch, hz, _)| (rank(f), (*ch != 2) as u8, (*hz != native_rate) as u8));
+        out.extend(more);
+    }
+    out.dedup();
+    out
+}
+
+fn stream_of<T>(device: &cpal::Device, config: &cpal::StreamConfig, mut rx: rodio::dynamic_mixer::DynamicMixer<f32>)
+    -> Result<cpal::Stream, String>
+where
+    T: cpal::SizedSample + cpal::FromSample<f32>,
+{
+    use cpal::traits::DeviceTrait;
+    let mut boosted = false;
+    device
+        .build_output_stream::<T, _, _>(config, move |data: &mut [T], _| {
+            if !boosted {
+                mmcss();
+                boosted = true;
+            }
+            for d in data.iter_mut() {
+                *d = T::from_sample(rx.next().unwrap_or(0.0).clamp(-1.0, 1.0));
+            }
+        }, |_e| {}, None)
+        .map_err(|e| e.to_string())
+}
+
+fn try_output() -> Result<Output, String> {
+    use cpal::traits::{DeviceTrait, StreamTrait};
+    use cpal::SampleFormat as F;
+    let device = pick_device().ok_or("Windows has no speakers")?;
+    let tries = candidates(&device);
+    if tries.is_empty() {
+        let why = device.default_output_config().err().map(|e| e.to_string()).unwrap_or_default();
+        return Err(format!("the device lists no formats {why}").trim().to_string());
+    }
+    let mut first_err = String::new();
+    for (format, chans, rate, frames) in tries {
+        let (mixer, rx) = rodio::dynamic_mixer::mixer::<f32>(chans, rate);
+        let size = frames.map_or(cpal::BufferSize::Default, cpal::BufferSize::Fixed);
         let config = cpal::StreamConfig { channels: chans, sample_rate: cpal::SampleRate(rate), buffer_size: size };
-        let err = |_e| {};
-        let mut boosted = false;
-        let stream = match sup.sample_format() {
-            cpal::SampleFormat::F32 => device.build_output_stream::<f32, _, _>(&config, move |data, _| {
-                if !boosted { mmcss(); boosted = true; }
-                data.iter_mut().for_each(|d| *d = rx.next().unwrap_or(0.0));
-            }, err, None),
-            cpal::SampleFormat::I16 => device.build_output_stream::<i16, _, _>(&config, move |data, _| {
-                if !boosted { mmcss(); boosted = true; }
-                data.iter_mut().for_each(|d| *d = (rx.next().unwrap_or(0.0).clamp(-1.0, 1.0) * 32767.0) as i16);
-            }, err, None),
-            _ => return None,
-        }.ok()?;
-        stream.play().ok()?;
-        Some((stream, mixer))
-    };
-    let (stream, mixer) = build(cpal::BufferSize::Fixed(frames)).or_else(|| build(cpal::BufferSize::Default))?;
-    let (sink, queue) = Sink::new_idle();
-    mixer.add(queue);
-    Some(Output { _stream: stream, mixer, sink, rate, channels: chans })
+        let built = match format {
+            F::F32 => stream_of::<f32>(&device, &config, rx),
+            F::F64 => stream_of::<f64>(&device, &config, rx),
+            F::I8 => stream_of::<i8>(&device, &config, rx),
+            F::I16 => stream_of::<i16>(&device, &config, rx),
+            F::I32 => stream_of::<i32>(&device, &config, rx),
+            F::I64 => stream_of::<i64>(&device, &config, rx),
+            F::U8 => stream_of::<u8>(&device, &config, rx),
+            F::U16 => stream_of::<u16>(&device, &config, rx),
+            F::U32 => stream_of::<u32>(&device, &config, rx),
+            F::U64 => stream_of::<u64>(&device, &config, rx),
+            other => Err(format!("{other:?} samples")),
+        };
+        match built.and_then(|st| st.play().map(|_| st).map_err(|e| e.to_string())) {
+            Ok(stream) => {
+                let (sink, queue) = Sink::new_idle();
+                mixer.add(queue);
+                return Ok(Output { _stream: stream, mixer, sink, rate, channels: chans });
+            }
+            Err(e) if first_err.is_empty() => first_err = format!("{format:?} {chans}ch {rate} Hz: {e}"),
+            Err(_) => {}
+        }
+    }
+    Err(first_err)
 }
 
 fn device_name() -> String {
-    use cpal::traits::{DeviceTrait, HostTrait};
-    cpal::default_host().default_output_device().and_then(|d| d.name().ok()).unwrap_or_default()
+    use cpal::traits::DeviceTrait;
+    pick_device().and_then(|d| d.name().ok()).unwrap_or_default()
 }
 
 /// Open `item` at `at` ms on a loader thread; it answers with Ready or LoadFailed.
@@ -499,7 +618,7 @@ pub fn run(tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Cmd>, info: Arc<Mutex<Info>
                     i.loaded = true;
                 } else {
                     i.failed = true;
-                    i.error = "no sound device".into();
+                    i.error = output_why();
                 }
             }
             Ok(Cmd::LoadFailed(g, e)) => {
@@ -615,7 +734,7 @@ pub fn run(tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Cmd>, info: Arc<Mutex<Info>
             }
         }
         // headphones in or out: follow Windows' default output, carry on where the song was
-        if last_device_check.elapsed() > Duration::from_secs(2) {
+        if last_device_check.elapsed() > Duration::from_secs(2) || RECHECK.swap(false, Ordering::Relaxed) {
             last_device_check = Instant::now();
             let now = device_name();
             if now != device && !now.is_empty() {
@@ -635,6 +754,51 @@ pub fn run(tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Cmd>, info: Arc<Mutex<Info>
 
 #[cfg(test)]
 mod tests {
+    /// cargo test --release -- --ignored speakers --nocapture: opens the speakers in every format the default device
+    /// lists (silence, 100 ms each) and through try_output, the way the player does.
+    #[test]
+    #[ignore]
+    fn speakers() {
+        use cpal::traits::{HostTrait, StreamTrait};
+        use cpal::SampleFormat as F;
+        let device = cpal::default_host().default_output_device().expect("speakers");
+        let tries = super::candidates(&device);
+        assert!(!tries.is_empty());
+        let mut opened = 0;
+        for (format, chans, rate, frames) in &tries {
+            let (_mixer, rx) = rodio::dynamic_mixer::mixer::<f32>(*chans, *rate);
+            let size = frames.map_or(cpal::BufferSize::Default, cpal::BufferSize::Fixed);
+            let config = cpal::StreamConfig { channels: *chans, sample_rate: cpal::SampleRate(*rate), buffer_size: size };
+            let built = match format {
+                F::F32 => super::stream_of::<f32>(&device, &config, rx),
+                F::I16 => super::stream_of::<i16>(&device, &config, rx),
+                F::I32 => super::stream_of::<i32>(&device, &config, rx),
+                F::U8 => super::stream_of::<u8>(&device, &config, rx),
+                F::I64 => super::stream_of::<i64>(&device, &config, rx),
+                _ => Err("not tried".into()),
+            };
+            let ok = built.and_then(|s| s.play().map(|_| s).map_err(|e| e.to_string()));
+            if ok.is_ok() {
+                opened += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            println!("{format:?} {chans}ch {rate} Hz {frames:?}: {}", ok.err().unwrap_or_else(|| "ok".into()));
+        }
+        assert!(opened > 0);
+        assert!(super::try_output().is_ok());
+        // pick each listed device by name, then an unplugged one (falls back to Windows' default)
+        let names = super::devices();
+        println!("devices: {names:?}");
+        for n in &names {
+            super::choose(n);
+            assert_eq!(&super::device_name(), n);
+            println!("{n}: {}", super::try_output().err().unwrap_or_else(|| "ok".into()));
+        }
+        super::choose("Speakers that are not plugged in");
+        assert!(!super::device_name().is_empty());
+        super::choose("");
+    }
+
     /// DRIFT_SONG=<file> cargo test --release -- --ignored real_song --nocapture: how long a song takes to measure.
     #[test]
     #[ignore]

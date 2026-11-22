@@ -41,6 +41,7 @@ class Engine(QObject):
     queue_changed = pyqtSignal()
     loading = pyqtSignal(bool)
     message = pyqtSignal(str)
+    devices_listed = pyqtSignal(list, str)    # speakers Windows has, the one picked ('' = Windows' default)
     online_changed = pyqtSignal(bool)
     track_updated = pyqtSignal(object)        # liked/saved state of a song changed
     library_changed = pyqtSignal()
@@ -105,8 +106,14 @@ class Engine(QObject):
         self.core.send('repeat', mode=self.repeat)
         self.core.send('drift', on=self.drift)
         self.send_sound()
+        self.core.send('device', name=self.store.get('output_device') or '')
         self.core.send('state')
         self.core.send('wave')
+
+    def set_device(self, name):
+        """Play through these speakers ('' = whatever Windows uses); the song carries on."""
+        self.store.set('output_device', name or '')
+        self.core.send('device', name=name or '')
 
     def send_sound(self):
         self.core.send('sound', level=bool(self.store.get('sound_level', True)), tone=bool(self.store.get('sound_tone', True)))
@@ -152,6 +159,8 @@ class Engine(QObject):
         elif kind == 'wave':
             self.wave = (ev.get('id') or '', list(ev.get('wave') or []))
             self.wave_ready.emit(*self.wave)
+        elif kind == 'devices':
+            self.devices_listed.emit([str(n) for n in ev.get('list') or []], str(ev.get('chosen') or ''))
         elif kind == 'show':
             self.show_requested.emit()
         elif kind == 'quit':
@@ -226,6 +235,14 @@ class Engine(QObject):
 
         def judged(on):
             note_play_failure(t, ev.get('msg'), on)
+            if ev.get('stopped'):              # the core stopped instead of skipping on: say why, play tries again
+                self._set_playing(False)
+                self.core_loaded = False           # play loads the song again (the core holds nothing now)
+                why = str(ev.get('msg') or '')
+                self.message.emit('Drift cannot reach your speakers. Pick them in Settings, Plays through, then '
+                                  'press play.' if why.startswith('no sound device') else
+                                  'Songs keep failing, so Drift stopped. Press play to try again.')
+                return
             self._set_online(on)
             stuck = on and t and online.blocked(t)
             if stuck or not on:

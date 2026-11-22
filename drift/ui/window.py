@@ -267,7 +267,10 @@ class Window(QMainWindow):
         self.update_pill.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_pill.clicked.connect(self.update_now)
         self.update_pill.hide()
+        self.bar.installEventFilter(self)      # the player bar shows/hides/moves with the page: notes follow it
         QTimer.singleShot(8000, self.check_update)
+        self.update_timer = QTimer(self, interval=3600_000, timeout=self.check_update)   # due() keeps it to 6 h
+        self.update_timer.start()
         self.trim_timer = QTimer(self, singleShot=True, interval=20_000, timeout=self.trim)
         self._wire()
         self._shortcuts()
@@ -612,12 +615,18 @@ class Window(QMainWindow):
 
     def _place_toast(self):
         if hasattr(self, 'toast'):
-            bottom = self.bar.y() if self.bar.isVisible() else self.height()
+            # the player bar lives inside the page root: its top in window coordinates
+            bottom = self.bar.mapTo(self, QPoint(0, 0)).y() if self.bar.isVisible() else self.height()
             self.toast.move((self.width() - self.toast.width()) // 2, bottom - self.toast.height() - 18)
             if self.toast.isVisible():
                 bottom = self.toast.y() - 8
             self.update_pill.move((self.width() - self.update_pill.width()) // 2,
                                   bottom - self.update_pill.height() - 18)
+
+    def eventFilter(self, obj, e):
+        if obj is getattr(self, 'bar', None) and e.type() in (e.Type.Show, e.Type.Hide, e.Type.Move, e.Type.Resize):
+            self._place_toast()
+        return super().eventFilter(obj, e)
 
     # ---- updates (drift/update.py) ----------------------------------------------------------------------------------
     def check_update(self, manual=False):

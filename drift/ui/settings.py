@@ -39,7 +39,7 @@ class Row(QWidget):
         words = QVBoxLayout()
         words.setSpacing(2)
         words.addWidget(label(title, 10.5, 600))
-        quiet = label(note, 9.5, 400, theme.MUTED)
+        self.quiet = quiet = label(note, 9.5, 400, theme.MUTED)
         quiet.setWordWrap(True)
         words.addWidget(quiet)
         lay.addLayout(words, 1)
@@ -62,6 +62,11 @@ class SettingsPage(Page):
         self.wall = QVBoxLayout()
         b.addLayout(self.wall)
         self.section('Sound')
+        self.speakers = pill('Change', True)
+        self.speakers.clicked.connect(lambda: win.engine.core.send('devices'))
+        self.speakers_row = Row('Plays through', self._speaker_words(), self.speakers)
+        b.addWidget(self.speakers_row)
+        win.engine.devices_listed.connect(self._speaker_menu)
         for key, default, title, note in SOUND:
             self.choice(key, default, title, note, lambda _on: win.engine.send_sound())
         self.section('Playing')
@@ -110,6 +115,30 @@ class SettingsPage(Page):
         self.body.addWidget(Row(title, note, switch))
         if key == 'drift':
             self.drift_switch = switch
+
+    def _speaker_words(self):
+        name = self.win.store.get('output_device') or ''
+        return name or 'Whatever Windows uses (it follows when you plug in headphones).'
+
+    def _speaker_menu(self, names, chosen):
+        """The core's answer to 'devices': a menu under the button, the one in use ticked."""
+        from PyQt6.QtWidgets import QMenu
+        try:
+            if not self.speakers.isVisible():
+                return
+        except RuntimeError:
+            return                                  # this page was rebuilt (sketch change)
+        m = QMenu(self)
+        for label_text, name in [('Windows default', '')] + [(n, n) for n in names]:
+            act = m.addAction(label_text)
+            act.setCheckable(True)
+            act.setChecked(name == chosen)
+            act.triggered.connect(lambda _=False, n=name: self._pick_speakers(n))
+        m.exec(self.speakers.mapToGlobal(self.speakers.rect().bottomLeft()))
+
+    def _pick_speakers(self, name):
+        self.win.engine.set_device(name)
+        self.speakers_row.quiet.setText(self._speaker_words())
 
     def _drift(self, on):
         self.win.engine.set_drift(on)

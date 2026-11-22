@@ -12,6 +12,7 @@ Drift plays the music on your PC and streams from YouTube Music, YouTube and Sou
 - **Studio finish.** Every song is levelled to the same loudness (ITU BS.1770 true-peak guard), with soft limiting and gentle fades.
 - **Radio that listens.** It ranks picks around what you're playing now, learns from your plays and early skips, spaces out repeat artists and never plays the same recording twice from different uploads.
 - **Offline first.** Saved songs keep their covers and lyrics on disk.
+- **Updates itself.** When a new version is out, one click: Drift restarts in seconds and the song carries on.
 - **Paste a link.** YouTube, SoundCloud or a Spotify track, album or playlist link. Spotify links are only used to read the track list; playback comes from the other sources.
 
 | Vinyl | Paper Theatre |

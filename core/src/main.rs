@@ -391,6 +391,10 @@ impl Ctx {
             "mute" => {
                 let _ = self.audio.send(audio::Cmd::Mute(v["on"].as_bool().unwrap_or(false)));
             }
+            "devices" => {
+                self.emit(json!({"ev": "devices", "list": audio::devices(), "chosen": audio::chosen()}));
+            }
+            "device" => audio::choose(v["name"].as_str().unwrap_or("")),
             "sound" => {
                 let (level, tone) = (v["level"].as_bool().unwrap_or(true), v["tone"].as_bool().unwrap_or(true));
                 let _ = self.audio.send(audio::Cmd::Sound(level, tone));
@@ -566,8 +570,11 @@ fn serve(ctx: Ctx, listener: TcpListener) {
 
 /// Every 100 ms: song finished -> next; tell the window the position; save a streamed song at 60% when alone.
 /// The core never leaves on its own (tray icon, ~3 MB): only Quit ends it, so the tray can always reopen Drift.
+const FAILS_BEFORE_STOP: u32 = 5;
+
 fn watch(ctx: Ctx) {
     let mut last_pos = Instant::now();
+    let mut fails_in_row = 0u32; // songs that failed one after another, none played between
     loop {
         thread::sleep(Duration::from_millis(100));
         let (ended, failed, pos, dur, playing, loading, listened, audio_id, why) = {
@@ -576,10 +583,22 @@ fn watch(ctx: Ctx) {
             let f = std::mem::take(&mut i.failed);
             (e, f, i.pos, i.dur, i.playing, i.loading, i.listened, i.audio_id.clone(), std::mem::take(&mut i.error))
         };
+        if playing {
+            fails_in_row = 0;
+        }
         if failed {
+            fails_in_row += 1;
             let id = ctx.st.lock().unwrap().current.as_ref().map(|c| c.id.clone()).unwrap_or_default();
-            ctx.emit(json!({"ev": "error", "id": id, "msg": if why.is_empty() { "could not play".to_string() } else { why }}));
-            ctx.next(true);
+            let why = if why.is_empty() { "could not play".to_string() } else { why };
+            // no speakers = no song can play: stop instead of racing through the whole queue; same after a run of
+            // failures for any reason. The window says why; play tries again.
+            let stop = why.starts_with("no sound device") || fails_in_row >= FAILS_BEFORE_STOP;
+            ctx.emit(json!({"ev": "error", "id": id, "msg": why, "stopped": stop}));
+            if stop {
+                fails_in_row = 0;
+            } else {
+                ctx.next(true);
+            }
             continue;
         }
         if ended {
