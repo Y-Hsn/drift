@@ -1,9 +1,9 @@
 //! The tray icon (left click opens Drift, right click: play/pause, next, previous, quit), the media keys and the Pause
-//! key (both bring up the player card, card.rs).
+//! key (both bring up the player card, card.rs), and Ctrl+Alt+S: name the song this PC is playing (hear.rs).
 use crate::Ctx;
 use std::sync::OnceLock;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_NOREPEAT};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT};
 use windows_sys::Win32::UI::Shell::{
     ExtractIconExW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
@@ -13,6 +13,7 @@ static CTX: OnceLock<Ctx> = OnceLock::new();
 static HWND_CELL: OnceLock<usize> = OnceLock::new();
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_CHANGED: u32 = WM_APP + 2;
+const HEAR_KEY: usize = 6; // Ctrl+Alt+S
 const KEYS: [(i32, u32); 5] = [(1, 0xB3), (2, 0xB0), (3, 0xB1), (4, 0xB2), (5, 0x13)]; // play/pause, next, previous, stop, Pause
 
 fn wide(s: &str) -> Vec<u16> {
@@ -137,6 +138,14 @@ unsafe extern "system" fn proc_(h: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRES
                     crate::card::show(true); // quiet: not over a full-screen game
                 }
                 5 => crate::card::pause_key(),
+                HEAR_KEY => {
+                    if crate::hear::listening() {
+                        crate::hear::stop();
+                    } else {
+                        crate::open_ui(ctx());
+                        crate::hear::start(ctx());
+                    }
+                }
                 _ => {}
             }
             0
@@ -180,6 +189,7 @@ pub fn run(ctx: Ctx) {
         for (id, vk) in KEYS {
             RegisterHotKey(h, id, MOD_NOREPEAT, vk);
         }
+        RegisterHotKey(h, HEAR_KEY as i32, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x53);
         let nid = notify_data(&tooltip());
         Shell_NotifyIconW(NIM_ADD, &nid);
         let mut msg: MSG = std::mem::zeroed();

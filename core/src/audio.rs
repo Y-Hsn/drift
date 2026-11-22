@@ -388,7 +388,7 @@ pub fn devices() -> Vec<String> {
     names
 }
 
-fn pick_device() -> Option<cpal::Device> {
+pub(crate) fn pick_device() -> Option<cpal::Device> {
     use cpal::traits::{DeviceTrait, HostTrait};
     let host = cpal::default_host();
     let want = chosen();
@@ -893,5 +893,18 @@ mod tests {
         let spec = song.spec;
         let a = crate::polish::measure_layout(song, spec.rate, spec.channels).unwrap();
         println!("{:.1} LUFS, gain {:+.1} dB, {} ms", a.lufs, a.gain_db(), t.elapsed().as_millis());
+    }
+
+    #[test]
+    #[ignore] // DRIFT_SONG=<file> HEAR_OUT=<file>: the Shazam fingerprint of the song's middle 12 s
+    fn fingerprint() {
+        let path = std::path::PathBuf::from(std::env::var("DRIFT_SONG").expect("DRIFT_SONG"));
+        let song = super::Song::open(&path).unwrap();
+        let (rate, channels) = (song.spec.rate as usize, song.spec.channels.count());
+        let all: Vec<f32> = song.collect();
+        let mono: Vec<f32> = all.chunks(channels).map(|f| f.iter().sum::<f32>() / f.len() as f32).collect();
+        let s16 = crate::hear::to_16k(&mono, rate);
+        let mid = s16.len() / 2;
+        std::fs::write(std::env::var("HEAR_OUT").expect("HEAR_OUT"), crate::hear::uri(&s16[mid - 96_000..mid + 96_000])).unwrap();
     }
 }

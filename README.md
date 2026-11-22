@@ -13,7 +13,9 @@ Drift plays the music on your PC and streams from YouTube Music, YouTube and Sou
 - **Radio that listens.** It ranks picks around what you're playing now, learns from your plays and early skips, spaces out repeat artists and never plays the same recording twice from different uploads.
 - **Offline first.** Saved songs keep their covers and lyrics on disk.
 - **Updates itself.** When a new version is out, one click: Drift restarts in seconds and the song carries on.
-- **Paste a link.** YouTube, SoundCloud or a Spotify track, album or playlist link. Spotify links are only used to read the track list; playback comes from the other sources.
+- **Paste a link.** YouTube, SoundCloud or a Spotify track, album or playlist link. A playlist or album comes with its name and description: listen to it, save it as a Drift playlist, or save and download it. Spotify links are only used to read the track list (up to 100 songs); playback comes from the other sources.
+- **Name what's playing.** Press **Ctrl+Alt+S** anywhere (or **Hear this PC** in Explore) while a video, film or stream plays: Drift listens to the PC's sound, never the microphone, names the song and finds the full version to play or keep.
+- **Find it by the words.** Press **Say it** in Explore and say or sing the lines you remember. Windows voice typing writes them in and Drift searches the lyrics.
 
 | Vinyl | Paper Theatre |
 |---|---|
@@ -50,8 +52,10 @@ Tests: `python -m unittest discover -s tests -p "test_*.py"` (offline) and `carg
 
 ## Notes
 
+To name a song, Drift sends Shazam a short fingerprint of what the PC plays (peaks of the sound, not the sound itself). Nothing is sent until you press the shortcut or the button.
+
 Drift doesn't host or ship any music. Respect the terms of the services you use and the rights of the artists you listen to.
 
 ## Licence
 
-GPL-3.0 (see [LICENSE](LICENSE)). Drift uses PyQt6 (GPL-3.0), Qt (LGPL-3.0), yt-dlp (Unlicense), ytmusicapi (MIT), mutagen (GPL-2.0+), rodio (MIT/Apache-2.0), symphonia (MPL-2.0) and QuickJS-ng (MIT, `vendor/qjs.exe`, used by yt-dlp for YouTube).
+GPL-3.0 (see [LICENSE](LICENSE)). Drift uses PyQt6 (GPL-3.0), Qt (LGPL-3.0), yt-dlp (Unlicense), ytmusicapi (MIT), mutagen (GPL-2.0+), rodio (MIT/Apache-2.0), symphonia (MPL-2.0) and QuickJS-ng (MIT, `vendor/qjs.exe`, used by yt-dlp for YouTube). The song fingerprint (`core/src/hear.rs`) follows SongRec (GPL-3.0), which documents Shazam's signature format.

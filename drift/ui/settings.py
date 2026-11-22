@@ -25,7 +25,7 @@ KEYS = ((('Space',), 'play / pause'), (('Ctrl', '← →'), 'previous / next'), 
         (('Ctrl', '↑ ↓'), 'volume'), (('M',), 'mute'), (('Ctrl', 'L'), 'like'), (('J',), 'the best part'),
         (('F',), 'calm view'), (('Ctrl', 'F'), 'search'), (('Ctrl', 'Y'), 'lyrics'), (('Ctrl', 'Q'), 'queue'),
         (('Ctrl', '1-4'), 'pages'), (('Ctrl', 'T'), 'next sketch'), (('Esc',), 'back'),
-        (('Pause',), 'player card, anywhere'))
+        (('Pause',), 'player card, anywhere'), (('Ctrl', 'Alt', 'S'), 'name the song this PC plays, anywhere'))
 
 
 class Row(QWidget):

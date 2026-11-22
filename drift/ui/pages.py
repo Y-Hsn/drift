@@ -10,7 +10,7 @@ from PyQt6.QtGui import QColor, QFontMetrics, QPainter
 from PyQt6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QScrollArea, QSizePolicy,
                              QVBoxLayout, QWidget)
 
-from .. import links, online, taste, tasks
+from .. import hear, links, online, taste, tasks
 from ..store import matching, norm
 from . import theme
 from .discover import DiscoverView
@@ -197,6 +197,13 @@ class LinkCard(QWidget):
             col.addWidget(w)
         col.addLayout(row)
 
+    def show_heard(self, about):
+        """A song named by ear: its name and artist; listen to it or keep it for offline."""
+        self.show_about({**about, 'total': 0})
+        self.eyebrow.setText('HEARD ON THIS PC')
+        self.keep.hide()
+        self.download.setText('Save for offline')
+
     def show_about(self, about):
         kind = 'album' if about.get('kind') == 'album' else 'playlist'
         total = about.get('total') or 0
@@ -205,6 +212,7 @@ class LinkCard(QWidget):
         self.title.setText(about.get('name') or kind.title())
         self.note.setText(about.get('note') or '')
         self.note.setVisible(bool(about.get('note')))
+        self.keep.show()
         self.listen.setText('Listen')
         self.keep.setText('Save as playlist')
         self.download.setText('Save and download')
@@ -246,6 +254,21 @@ class ExplorePage(Page):
         for c in chips:
             srow.addWidget(c)
         srow.addStretch()
+        self.say_btn = pill('Say it', ghost=True)
+        self.say_btn.setToolTip('Say or sing a few words you remember: Windows voice typing writes them here')
+        self.say_btn.clicked.connect(self.say_words)
+        self.hear_btn = pill('Hear this PC', ghost=True)
+        self.hear_btn.setToolTip('Names the song this PC is playing (a video, a film...). Ctrl+Alt+S does it anywhere')
+        self.hear_btn.clicked.connect(self.listen)
+        srow.addWidget(self.say_btn)
+        srow.addWidget(self.hear_btn)
+        self._hear = None          # this listen: named yet, tries waiting for an answer
+        self._voice = QTimer(self)  # voice typing: search once the words stop coming
+        self._voice.setSingleShot(True)
+        self._voice.setInterval(1800)
+        self._voice_on = False
+        self._voice.timeout.connect(lambda: self.search.text().strip() and self.run(self.search.text()))
+        self.search.textChanged.connect(lambda _t: self._voice_on and self._voice.start())
         self.body.addWidget(self.chips)
         self.status = label('', 10, 400, theme.MUTED)
         self.status.setWordWrap(True)
@@ -499,7 +522,109 @@ class ExplorePage(Page):
         self.search.setFocus()
         self.search.selectAll()
 
+    # ---- find a song by ear: the words you remember, or what this PC is playing -------------------------------------
+    def say_words(self):
+        """Windows voice typing (Win+H) writes what you say or sing into the search; it runs when you stop."""
+        import ctypes
+        self.search.clear()
+        self.search.setFocus()
+        self._voice_on = True
+        self.status.setText('Say or sing the words you remember…')
+        press = ctypes.windll.user32.keybd_event
+        for key, up in ((0x5B, 0), (0x48, 0), (0x48, 2), (0x5B, 2)):     # Win down, H down, H up, Win up
+            press(key, 0, up, 0)
+
+    def listen(self):
+        if self._hear and self._hear['on']:
+            self.win.engine.listen_stop()
+            self.hearing(False, '')
+            return
+        if not self.win.engine.online:
+            self.status.setText('Naming a song needs the internet.')
+            return
+        self.win.engine.listen()
+
+    def hearing(self, on, why):
+        if on:
+            self._hear = {'on': True, 'named': False, 'waiting': 0, 'last': False}
+            self._stop_link()
+            self._stamp = 0
+            for w in (self.ideas, self.card, self.results, self.actions, self.nothing):
+                w.hide()
+            self.status.setText('Listening to this PC… (a few seconds)')
+        elif self._hear:
+            self._hear['on'] = False
+            if why and not self._hear['named']:
+                self.status.setText('Could not listen: ' + why)
+        self.hear_btn.setText('Stop listening' if on else 'Hear this PC')
+
+    def heard(self, ev):
+        h = self._hear
+        if not h or h['named']:
+            return
+        last = bool(ev.get('last'))
+
+        def answer(found):
+            h['waiting'] -= 1
+            if found and not h['named']:
+                h['named'] = True
+                self.win.engine.listen_stop()
+                self._show_heard(found)
+            elif h['last'] and not h['waiting'] and not h['named']:
+                self._found([], '', ('Could not name it', 'Try again while the song plays clearly, without talking over it.'))
+
+        def failed(e):
+            h['waiting'] -= 1
+            if not h['named']:
+                h['named'] = True      # stop asking
+                self.win.engine.listen_stop()
+                self.status.setText(str(e) if isinstance(e, hear.Busy) else 'Could not reach the song search. Check the internet.')
+
+        h['last'] = h['last'] or last
+        if ev.get('quiet'):
+            if last and not h['waiting']:
+                self._found([], '', ('Nothing is playing', 'Play the video or film, then try again.'))
+            return
+        h['waiting'] += 1
+        tasks.run(hear.recognize, ev.get('uri') or '', int(ev.get('ms') or 0), int(ev.get('at') or 0) or None,
+                  done=answer, failed=failed)
+
+    def _show_heard(self, h):
+        about = {'kind': 'song', 'name': h['title'], 'source': 'Heard on this PC',
+                 'note': ' · '.join(filter(None, [h['artist'], h.get('album'), h.get('year')]))}
+        link = self._link = {'about': about, 'found': [], 'cancel': Event(), 'listen': False, 'playing': False,
+                             'pid': None, 'download': False, 'done': False, 'single': True}
+        self._link_cancel = link['cancel']
+        stamp = self._stamp = time.time()
+        self.ideas.hide()
+        self.nothing.hide()
+        self.card.show_heard(about)
+        self.status.setText('Finding the full song…')
+        self.win.bring_up()
+
+        def got(track):
+            link['done'] = True
+            if self._stamp != stamp:
+                return
+            if not track:
+                self.status.setText('Named it, but the full song is not online. Try the search.')
+                return
+            track = self.win.store.refresh(track)
+            link['found'].append(track)
+            self._link_took(link, [track])
+            self._found([track], 'Heard on this PC')
+            self.actions.hide()
+
+        def bad(_e):
+            link['done'] = True
+            if self._stamp == stamp:
+                self.status.setText('Named it, but could not reach the full song. Try the search.')
+
+        tasks.run(hear.full_song, h, done=got, failed=bad)
+
     def run(self, query):
+        self._voice_on = False
+        self._voice.stop()
         query = query.strip()
         if not query:
             return
@@ -633,7 +758,7 @@ class ExplorePage(Page):
 
     def _link_keep(self):
         link = self._link
-        if not link or not link['about']:
+        if not link or not link['about'] or link.get('single'):
             return
         if link['pid']:
             self.win.go('playlist', link['pid'])
@@ -652,7 +777,7 @@ class ExplorePage(Page):
         link = self._link
         if not link or not link['about'] or link['download']:
             return
-        if not link['pid']:
+        if not link['pid'] and not link.get('single'):
             self._link_keep()
         link['download'] = True
         for t in link['found']:

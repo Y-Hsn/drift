@@ -390,12 +390,19 @@ class Window(QMainWindow):
         e.online_changed.connect(self._online)
         e.downloads_changed.connect(self._downloads)
         e.show_requested.connect(self.bring_up)
+        e.hearing.connect(self._hearing)
+        e.heard.connect(lambda ev: self.explore.heard(ev))
         e.quit_requested.connect(lambda: self.quit(keep_music=True))
         self.bar.queue.clicked.connect(lambda: self.go('queue') if self.page != 'queue' else self.go_back())
         self.bar.lyrics.clicked.connect(lambda: self.go('lyrics') if self.page != 'lyrics' else self.go_back())
         self.bar.cover.mousePressEvent = lambda ev: self.go('lyrics')
         self._online(e.online)
         self.refresh_playlists()
+
+    def _hearing(self, on, why):
+        if on and self.page != 'explore':
+            self.go('explore')     # no pop-up while listening: the window comes up once the song is named
+        self.explore.hearing(on, why)
 
     def _now(self, t):
         if self.page in ('home', 'calm'):

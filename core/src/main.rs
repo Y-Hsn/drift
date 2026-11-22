@@ -5,6 +5,7 @@
 
 mod audio;
 mod card;
+mod hear;
 mod listening;
 mod polish;
 mod peak;
@@ -348,6 +349,7 @@ impl Ctx {
                 }
                 let s = self.snapshot();
                 self.emit(s);
+                hear::flush(self);
             }
             "load" => {
                 if let Some(it) = item() {
@@ -398,6 +400,8 @@ impl Ctx {
                 self.emit(json!({"ev": "devices", "list": audio::devices(), "chosen": audio::chosen()}));
             }
             "device" => audio::choose(v["name"].as_str().unwrap_or("")),
+            "listen" => hear::start(self),
+            "listen_stop" => hear::stop(),
             "sound" => {
                 let (level, tone) = (v["level"].as_bool().unwrap_or(true), v["tone"].as_bool().unwrap_or(true));
                 let _ = self.audio.send(audio::Cmd::Sound(level, tone));

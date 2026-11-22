@@ -49,6 +49,8 @@ class Engine(QObject):
     show_requested = pyqtSignal()
     quit_requested = pyqtSignal()
     wave_ready = pyqtSignal(str, list)        # uid, the song's loudness shape (0..255 bars) from the core
+    hearing = pyqtSignal(bool, str)           # the core listens to this PC (on), why it stopped early
+    heard = pyqtSignal(dict)                  # a fingerprint of what this PC plays (hear.py names it)
 
     def __init__(self, store, parent=None, core=None):
         super().__init__(parent)
@@ -161,6 +163,10 @@ class Engine(QObject):
             self.wave_ready.emit(*self.wave)
         elif kind == 'devices':
             self.devices_listed.emit([str(n) for n in ev.get('list') or []], str(ev.get('chosen') or ''))
+        elif kind == 'hearing':
+            self.hearing.emit(bool(ev.get('on')), str(ev.get('error') or ''))
+        elif kind == 'heard':
+            self.heard.emit(ev)
         elif kind == 'show':
             self.show_requested.emit()
         elif kind == 'quit':
@@ -332,6 +338,13 @@ class Engine(QObject):
             random.shuffle(tracks)
         self.queue = tracks[1:]
         self.play(tracks[0])
+
+    def listen(self):
+        """Name the song this PC plays: the core listens to the speakers (Ctrl+Alt+S does the same anywhere)."""
+        self.core.send('listen')
+
+    def listen_stop(self):
+        self.core.send('listen_stop')
 
     def play_link(self, track, request):
         if self.current and self.active_link is None and self._before_link is None:
