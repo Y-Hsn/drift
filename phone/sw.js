@@ -1,7 +1,7 @@
 // Drift phone: the app opens with no internet, and every song on the shelf plays from the phone.
 // Songs live in the 'drift-songs' cache under ./s/<id>; covers under ./c/<id>. Audio asks for byte ranges, so
 // ranges are cut from the cached file here (Safari needs 206 answers for <audio>).
-const SHELL = 'drift-shell-v7';
+const SHELL = 'drift-shell-v8';
 const SONGS = 'drift-songs';
 const FILES = ['./', 'index.html', 'app.js', 'store.js', 'sync.js', 'player.js', 'scape.js', 'style.css',
                'manifest.json', 'icon-192.png', 'icon-512.png'];

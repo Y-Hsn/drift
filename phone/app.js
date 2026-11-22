@@ -13,9 +13,11 @@ const gb = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)
 
 // ---------- start ----------
 
-// iPhone home-screen apps: CSS heights come out one status bar short; the screen's own height is right there.
+// The app is exactly as tall as the area the phone gives it (innerHeight). CSS heights are not trusted here: on an
+// iPhone home-screen app height: 100% came out one status bar short, and the screen's height one status bar too tall
+// (the app starts below the status bar), which pushed the tab bar off the bottom.
 function fitScreen() {
-  if (navigator.standalone) document.documentElement.style.setProperty('--app-h', Math.max(innerHeight, screen.height) + 'px');
+  document.documentElement.style.setProperty('--app-h', innerHeight + 'px');
 }
 fitScreen();
 addEventListener('resize', fitScreen);
