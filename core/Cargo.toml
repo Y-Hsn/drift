@@ -11,7 +11,11 @@ cpal = "=0.15.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 encoding_rs = "=0.8.35"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Security", "Win32_Graphics_GdiPlus", "Win32_UI_HiDpi"] }
+sha2 = { version = "=0.10.8", default-features = false }
+hmac = "=0.12.1"
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
+getrandom = "=0.2.15"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Security", "Win32_Graphics_GdiPlus", "Win32_UI_HiDpi", "Win32_System_JobObjects"] }
 
 [profile.release]
 opt-level = "s"

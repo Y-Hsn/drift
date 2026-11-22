@@ -51,6 +51,8 @@ class Engine(QObject):
     wave_ready = pyqtSignal(str, list)        # uid, the song's loudness shape (0..255 bars) from the core
     hearing = pyqtSignal(bool, str)           # the core listens to this PC (on), why it stopped early
     heard = pyqtSignal(dict)                  # a fingerprint of what this PC plays (hear.py names it)
+    phones_listed = pyqtSignal(dict)          # paired phones + the link's state (core door.rs)
+    phone_invite = pyqtSignal(dict)           # a pairing code's link for the QR, or how far the link is
 
     def __init__(self, store, parent=None, core=None):
         super().__init__(parent)
@@ -167,6 +169,10 @@ class Engine(QObject):
             self.hearing.emit(bool(ev.get('on')), str(ev.get('error') or ''))
         elif kind == 'heard':
             self.heard.emit(ev)
+        elif kind == 'phones':
+            self.phones_listed.emit(ev)
+        elif kind == 'phone_invite':
+            self.phone_invite.emit(ev)
         elif kind == 'show':
             self.show_requested.emit()
         elif kind == 'quit':

@@ -26,6 +26,8 @@ from .widgets import Dock, IconButton, label
 TOP = 48         # the index along the top
 STRIP = 108      # the horizon along the bottom
 LIVE = None      # the window on screen (a sketch change replaces it)
+UPDATE_CHECKING = False
+UPDATE_MANUAL = False
 
 
 def live():
@@ -259,7 +261,7 @@ class Window(QMainWindow):
         self.toast.setFont(theme.font(10, 500))
         self.toast.hide()
         self.toast_timer = QTimer(self, singleShot=True, interval=3500, timeout=self.toast.hide)
-        self.update_pill = QPushButton(self)          # "Drift 1.0.3 is ready · Update": one click, then a restart
+        self.update_pill = QPushButton(self)
         self.update_pill.setStyleSheet(f'QPushButton {{ background: rgba(10,10,14,0.92); color: {theme.TEXT}; '
                                        f'border: 1px solid {theme.EDGE}; border-radius: 17px; padding: 9px 20px; }} '
                                        f'QPushButton:hover {{ border-color: {theme.TEXT}; }}')
@@ -268,7 +270,6 @@ class Window(QMainWindow):
         self.update_pill.clicked.connect(self.update_now)
         self.update_pill.hide()
         self.bar.installEventFilter(self)      # the player bar shows/hides/moves with the page: notes follow it
-        QTimer.singleShot(8000, self.check_update)
         self.update_timer = QTimer(self, interval=3600_000, timeout=self.check_update)   # due() keeps it to 6 h
         self.update_timer.start()
         self.trim_timer = QTimer(self, singleShot=True, interval=20_000, timeout=self.trim)
@@ -279,6 +280,7 @@ class Window(QMainWindow):
         if self.windowFlags() & Qt.WindowType.FramelessWindowHint:
             self.grips = frame.Grips(self)
         self.go('home')
+        self._check_update(cached_only=True)
 
     # ---- layout -------------------------------------------------------------------------------------------------
     def _top(self):
@@ -637,29 +639,52 @@ class Window(QMainWindow):
 
     # ---- updates (drift/update.py) ----------------------------------------------------------------------------------
     def check_update(self, manual=False):
-        """Quietly, at most every 6 h while online; from Settings on demand."""
+        self._check_update(manual=manual)
+
+    def _check_update(self, manual=False, cached_only=False):
+        """Check the local stage first on startup, then check GitHub when due or asked."""
         from .. import update
+        global UPDATE_CHECKING, UPDATE_MANUAL
         if update.found:
             return self._update_ready(update.found)
+        if UPDATE_CHECKING:
+            if manual:
+                UPDATE_MANUAL = True
+                self.say('Looking for updates…')
+            return
         if not update.can_update():
             return manual and self.say('Updates come through the Drift.exe from the releases page.')
-        if not manual and (not self.engine.online or not update.due(self.store)):
+        if not cached_only and not manual and (not self.engine.online or not update.due(self.store)):
             return
 
-        def answered(info):
-            self.store.set('update_checked', time.time())
-            update.found = info
+        def finished(info=None, error=False):
+            global UPDATE_CHECKING, UPDATE_MANUAL
+            requested = UPDATE_MANUAL
+            UPDATE_CHECKING = UPDATE_MANUAL = False
+            window = live()
+            if window.quitting:
+                return
             if info:
-                self._update_ready(info)
-            elif manual:
-                self.say(f'Drift {update.__version__} is the newest.')
+                update.found = info
+                window._update_ready(info)
+            elif cached_only:
+                if requested:
+                    window.check_update(manual=True)
+                else:
+                    QTimer.singleShot(8000, window.check_update)
+            elif requested:
+                window.say('Could not get the update. Try again.' if error else
+                           f'Drift {update.__version__} is the newest.')
 
-        tasks.run(update.latest, done=answered,
-                  failed=lambda e: manual and self.say('Could not reach GitHub to look for updates.'))
+        if not cached_only:
+            self.store.set('update_checked', time.time())
+        UPDATE_CHECKING, UPDATE_MANUAL = True, manual
+        tasks.run(update.staged if cached_only else update.prepare, done=finished,
+                  failed=lambda _: finished(error=True))
 
     def _update_ready(self, info):
         self.update_pill.setEnabled(True)
-        self.update_pill.setText(f'Drift {info["version"]} is ready  ·  Update')
+        self.update_pill.setText(f'Drift {info["version"]} is ready · Restart to update')
         self.update_pill.adjustSize()
         self.update_pill.show()
         self.update_pill.raise_()
@@ -667,35 +692,28 @@ class Window(QMainWindow):
 
     def update_now(self):
         from .. import update
+        from ..core import read_port
         info = update.found
-        if not info or not self.update_pill.isEnabled():
+        if not info or self.quitting or not self.update_pill.isEnabled():
             return
         self.update_pill.setEnabled(False)
-
-        def step(text):
-            self.update_pill.setText(text)
-            self.update_pill.adjustSize()
-            self._place_toast()
-
-        def got(new):
-            step('Restarting…')
-            from ..core import read_port
-            core = read_port()
-            self.store.set('resume_after_update', bool(self.engine.playing))
-            try:
-                update.apply(new, info['version'], [os.getpid(), core[2] if core else 0])
-            except OSError as e:
-                self.store.set('resume_after_update', False)
-                return failed(e)
-            QTimer.singleShot(150, lambda: live().quit(keep_music=False))
-
-        def failed(e):
-            self.say(f'The update did not finish: {e}')
-            self._update_ready(info)
-
-        step(f'Getting Drift {info["version"]}…')
-        tasks.run(update.fetch, info, done=got, failed=failed,
-                  progress=lambda f: step(f'Getting Drift {info["version"]}…  {int(f * 100)}%'))
+        self.update_pill.setText('Restarting…')
+        self.update_pill.adjustSize()
+        self._place_toast()
+        core = read_port()
+        self.store.set('resume_after_update', bool(self.engine.playing))
+        try:
+            update.apply(info['path'], info['version'], [os.getpid(), core[2] if core else 0])
+        except (OSError, ValueError):
+            self.store.set('resume_after_update', False)
+            self.say('Could not restart to update.')
+            if info['path'].is_dir():
+                self._update_ready(info)
+            else:
+                update.found = None
+                self.update_pill.hide()
+            return
+        self.quit(keep_music=False)
 
     # ---- keys -----------------------------------------------------------------------------------------------------
     def _shortcuts(self):

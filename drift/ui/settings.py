@@ -3,7 +3,9 @@ plays, where your music lives, and the keys as a sheet of keycaps. Each choice i
 in a quiet line, a switch on the right."""
 import os
 
-from PyQt6.QtCore import QRectF, Qt
+import time
+
+from PyQt6.QtCore import QRectF, QSize, Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
@@ -51,6 +53,163 @@ class Row(QWidget):
         p.drawLine(QRectF(self.rect()).bottomLeft(), QRectF(self.rect()).bottomRight())
 
 
+class QrCode(QWidget):
+    """A QR code drawn as squares (dark on light paper), sharp at any screen scale."""
+
+    def __init__(self, size=232):
+        super().__init__()
+        self.cells = []
+        self.setFixedSize(QSize(size, size))
+
+    def set(self, text):
+        import qrcode
+        q = qrcode.QRCode(border=0, error_correction=qrcode.constants.ERROR_CORRECT_M)
+        q.add_data(text)
+        q.make(fit=True)
+        self.cells = q.get_matrix()
+        self.update()
+
+    def paintEvent(self, e):
+        if not self.cells:
+            return
+        p = QPainter(self)
+        r = QRectF(self.rect())
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(246, 241, 232))
+        p.drawRoundedRect(r, 12, 12)
+        quiet = 14
+        cell = (r.width() - 2 * quiet) / len(self.cells)
+        p.setBrush(QColor(16, 18, 30))
+        for y, row in enumerate(self.cells):
+            for x, on in enumerate(row):
+                if on:
+                    p.drawRect(QRectF(quiet + x * cell, quiet + y * cell, cell + 0.4, cell + 0.4))
+
+
+def ago(ms):
+    if not ms:
+        return 'not synced yet'
+    s = max(0, time.time() - ms / 1000)
+    if s < 90:
+        return 'synced just now'
+    if s < 3600:
+        return f'synced {int(s // 60)} min ago'
+    if s < 86400:
+        return f'synced {int(s // 3600)} h ago'
+    return f'synced {int(s // 86400)} days ago'
+
+
+class Phones(QWidget):
+    """Settings > Phones: pair a phone with a QR code (no account, no password), see paired phones, unpair one."""
+    WAIT = {'fetching': 'Getting the phone link ready. The first time takes about a minute…',
+            'starting': 'Opening the link to your phone…', 'off': 'Opening the link to your phone…',
+            'up': 'Opening the link to your phone…',
+            'failed': 'Could not open the link. Check the internet and try again.'}
+    STEPS = ('Open the link it shows. On an iPhone: tap Share, then Add to Home Screen, then open Drift from the home '
+             'screen. On Android: open it and tap Get the Drift app.\n\nThe code works once. Your phone gets your '
+             'playlists, liked songs and radio picks, and plays them offline.')
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(10)
+        row = QHBoxLayout()
+        self.pair = pill('Pair a phone')
+        self.pair.clicked.connect(self._ask)
+        row.addWidget(self.pair)
+        row.addStretch()
+        lay.addLayout(row)
+        self.card = QWidget()
+        card = QHBoxLayout(self.card)
+        card.setContentsMargins(0, 6, 0, 6)
+        card.setSpacing(22)
+        self.qr = QrCode()
+        card.addWidget(self.qr, 0, Qt.AlignmentFlag.AlignTop)
+        words = QVBoxLayout()
+        words.setSpacing(6)
+        self.say = label('', 10.5, 600)
+        self.say.setWordWrap(True)
+        words.addWidget(self.say)
+        self.steps = label('', 9.5, 400, theme.MUTED)
+        self.steps.setWordWrap(True)
+        words.addWidget(self.steps)
+        words.addStretch()
+        card.addLayout(words, 1)
+        self.card.hide()
+        lay.addWidget(self.card)
+        self.list = QVBoxLayout()
+        self.list.setSpacing(0)
+        lay.addLayout(self.list)
+        self.expires = 0
+        self.clock = QTimer(self)
+        self.clock.timeout.connect(self._tick)
+        win.engine.phones_listed.connect(self._listed)
+        win.engine.phone_invite.connect(self._invite)
+
+    def refresh(self):
+        self.win.engine.core.send('phones')
+
+    def _ask(self):
+        self.card.show()
+        self.qr.hide()
+        self.say.setText(self.WAIT['starting'])
+        self.steps.setText('')
+        self.pair.setEnabled(False)
+        self.win.engine.core.send('phone_invite')
+
+    def _invite(self, ev):
+        try:
+            if 'url' in ev:
+                self.qr.set(ev['url'])
+                self.qr.show()
+                self.expires = int(ev.get('expires') or 0)
+                self.steps.setText(self.STEPS)
+                self.pair.setEnabled(True)
+                self.pair.setText('New code')
+                self.clock.start(1000)
+                self._tick()
+            elif 'error' in ev:
+                self.say.setText(ev['error'])
+                self.pair.setEnabled(True)
+            else:
+                self.say.setText(self.WAIT.get(ev.get('state'), self.WAIT['starting']))
+        except RuntimeError:
+            pass                                     # the page was rebuilt (sketch change)
+
+    def _tick(self):
+        left = int(self.expires / 1000 - time.time())
+        try:
+            if left <= 0:
+                self.clock.stop()
+                self.qr.hide()
+                self.say.setText('That code has run out.')
+                self.steps.setText('Make a new one when your phone is ready.')
+            else:
+                self.say.setText(f"Scan this with your phone's camera · {left // 60}:{left % 60:02d}")
+        except RuntimeError:
+            self.clock.stop()
+
+    def _listed(self, ev):
+        from .pages import clear
+        try:
+            clear(self.list)
+        except RuntimeError:
+            return
+        phones = ev.get('list') or []
+        if self.qr.isVisible() and any(p.get('created', 0) / 1000 > time.time() - 600 for p in phones):
+            self.clock.stop()                        # a phone just paired with the code on screen
+            self.card.hide()
+            self.pair.setText('Pair a phone')
+        for ph in phones:
+            unpair = pill('Unpair', True)
+            unpair.clicked.connect(lambda _=False, d=ph['device']: self.win.engine.core.send('phone_unpair', device=d))
+            size = ph.get('size') or 0
+            note = ago(ph.get('seen')) + (f' · shelf {size / 2**30:.0f} GB' if size else '')
+            self.list.addWidget(Row(ph.get('name') or 'Phone', note, unpair))
+
+
 class SettingsPage(Page):
     def __init__(self, win):
         super().__init__('Settings', 'Drift · how it looks, sounds and plays')
@@ -87,6 +246,10 @@ class SettingsPage(Page):
             row.addWidget(p)
         row.addStretch()
         b.addLayout(row)
+        self.section('Phones', 'Your music on your phone, offline too: scan a code, no account or password. '
+                               'The phone syncs with this PC whenever both are online.')
+        self.phones = Phones(win)
+        b.addWidget(self.phones)
         from .. import __version__
         self.section('Drift', f'Version {__version__}. Drift looks for a new version now and then, and asks '
                               'before it updates: one click, a quick restart, and the song carries on.')
@@ -162,7 +325,8 @@ class SettingsPage(Page):
         self.drift_switch.setChecked(self.win.engine.drift)
         self.drift_switch.t = 1.0 if self.win.engine.drift else 0.0
         self.drift_switch.blockSignals(False)
-        folder = self.win.store.get('music_folder')
+        self.phones.refresh()
+        folder =self.win.store.get('music_folder')
         self.folder.setText(folder)
         self.size.setText('Counting…')
         tasks.run(online.folder_size, folder, done=self._sized)

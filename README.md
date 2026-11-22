@@ -18,6 +18,7 @@ Drift plays the music on your PC and streams from YouTube Music, YouTube and Sou
 - **Paste a link.** YouTube, SoundCloud or a Spotify track, album or playlist link. A playlist or album comes with its name and description: listen to it, save it as a Drift playlist, or save and download it. Spotify links are only used to read the track list (up to 100 songs); playback comes from the other sources.
 - **Name what's playing.** Press **Ctrl+Alt+S** anywhere (or **Hear this PC** in Explore) while a video, film or stream plays: Drift listens to the PC's sound, never the microphone, names the song and finds the full version to play or keep.
 - **Find it by the words.** Press **Say it** in Explore and say or sing the lines you remember. Windows voice typing writes them in and Drift searches the lyrics.
+- **Your music on your phone.** Settings > Phones > Pair a phone shows a QR code. Scan it with the phone's camera: the phone keeps its own shelf of your saved songs, playlists, likes and radio picks (1, 2 or 5 GB), plays them offline with lock-screen controls, and sends plays, skips and likes back. No account, no password. iPhone: a web app you add to the home screen. Android: the Drift app (below), which also streams from YouTube.
 
 | Vinyl | Paper Theatre |
 |---|---|
@@ -28,6 +29,12 @@ Drift plays the music on your PC and streams from YouTube Music, YouTube and Sou
 Download `Drift-windows.zip` from [Releases](../../releases), unzip it anywhere and run `Drift.exe`. Windows 10 or 11.
 
 Windows SmartScreen will warn you the first time, because the app isn't code-signed. Click **More info**, then **Run anyway**.
+
+### On your phone
+
+Pair from **Settings > Phones** on the PC. On an iPhone, open the QR link in Safari and tap Share > **Add to Home Screen**. On Android, install `Drift-android-N.apk` from [Releases](../../releases) (allow installing from your browser or files app when Android asks; Play Protect may warn because the app is not from the Play Store), then scan the QR code.
+
+The phone and the PC meet through a free Cloudflare quick tunnel that Drift starts only while a phone is paired. Every request is signed with the phone's own key (HMAC-SHA256, two-minute window, never replayed), and the PC's changing address reaches the phone encrypted (AES-256-GCM) through ntfy.sh. Unpairing a phone ends its access at once.
 
 ## Build from source
 
@@ -50,6 +57,8 @@ Tests: `python -m unittest discover -s tests -p "test_*.py"` (offline) and `carg
 |---|---|
 | `core/` | `drift-core.exe` (Rust): sound, queue, tray icon, media keys, loudness and the song's shape. Talks to the window over line JSON on localhost. |
 | `drift/` | The window (PyQt6): library (SQLite), online sources (ytmusicapi, yt-dlp), taste and radio, lyrics, pages. |
+| `phone/` | The phone app (plain JavaScript, offline first). |
+| `android/` | Drift for Android (Kotlin, Media3; YouTube through NewPipeExtractor). |
 | `drift/ui/sketches/` | The rooms. Built-ins are Python; your own rooms are `sketch.js` files run in a sealed JavaScript engine. Start with `guide.html`. |
 
 ## Notes
@@ -64,4 +73,4 @@ New versions, sneak peeks and ideas: [@ysr_tries on X](https://x.com/ysr_tries).
 
 ## Licence
 
-GPL-3.0 (see [LICENSE](LICENSE)). Drift uses PyQt6 (GPL-3.0), Qt (LGPL-3.0), yt-dlp (Unlicense), ytmusicapi (MIT), mutagen (GPL-2.0+), rodio (MIT/Apache-2.0), symphonia (MPL-2.0) and QuickJS-ng (MIT, `vendor/qjs.exe`, used by yt-dlp for YouTube). The song fingerprint (`core/src/hear.rs`) follows SongRec (GPL-3.0), which documents Shazam's signature format.
+GPL-3.0 (see [LICENSE](LICENSE)). Drift uses PyQt6 (GPL-3.0), Qt (LGPL-3.0), yt-dlp (Unlicense), ytmusicapi (MIT), mutagen (GPL-2.0+), rodio (MIT/Apache-2.0), symphonia (MPL-2.0) and QuickJS-ng (MIT, `vendor/qjs.exe`, used by yt-dlp for YouTube) and cloudflared (Apache-2.0, fetched on first pairing). The Android app uses NewPipeExtractor (GPL-3.0), Media3, AndroidX and OkHttp (Apache-2.0). The song fingerprint (`core/src/hear.rs`) follows SongRec (GPL-3.0), which documents Shazam's signature format.

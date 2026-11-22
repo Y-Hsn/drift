@@ -68,7 +68,13 @@ def main(argv):
     args = dict(zip(argv[::2], argv[1::2]))
     op, item = args.get('--net'), json.loads(args.get('--item') or '{}')
     try:
-        answer = refill(item, json.loads(args.get('--upcoming') or '[]')) if op == 'refill' else OPS[op](item)
+        if op.startswith('phone-'):                    # a phone sync (drift/phone.py); the door waits for the reply
+            from . import phone
+            answer = phone.run(op[6:], args.get('--device'), int(args.get('--size') or 0) or None)
+        elif op == 'refill':
+            answer = refill(item, json.loads(args.get('--upcoming') or '[]'))
+        else:
+            answer = OPS[op](item)
     except Exception as e:
         answer = {'error': str(e)[:200] or 'failed'}
     req = int(args.get('--req') or 0)

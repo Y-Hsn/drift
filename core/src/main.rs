@@ -5,6 +5,7 @@
 
 mod audio;
 mod card;
+mod door;
 mod hear;
 mod listening;
 mod polish;
@@ -423,6 +424,7 @@ impl Ctx {
             }
             "quit" => quit(self),
             "reply" => self.reply(v),
+            c if c.starts_with("phone") => door::command(self, c, v),
             _ => {
                 if from_client {
                     self.emit(json!({"ev": "error", "msg": format!("unknown command {cmd}")}));
@@ -688,5 +690,6 @@ fn main() {
     thread::spawn(move || serve(c, listener));
     let c = ctx.clone();
     thread::spawn(move || watch(c));
+    door::start(ctx.clone()); // paired phones sync through here (docs/phone-sync.md)
     tray::run(ctx); // the message loop: tray icon + media keys, until quit
 }

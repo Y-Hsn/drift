@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="night">#0C0F1D</color>
+    <color name="sun">#F2B05E</color>
+    <style name="Drift" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/night</item>
+        <item name="android:statusBarColor">@color/night</item>
+        <item name="android:navigationBarColor">@color/night</item>
+        <item name="android:colorAccent">@color/sun</item>
+    </style>
+</resources>
