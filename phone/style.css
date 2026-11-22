@@ -87,8 +87,8 @@ h2 { font: 600 24px/1.15 var(--serif); margin: 0; }
 .pill:disabled { opacity: .5; }
 
 .sync-line { font-size: 12px; color: var(--faint); text-align: center; padding: 2px 16px 4px; min-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* like a native tab bar: 49 pt of buttons, then the home-indicator strip */
-.tabs { display: flex; justify-content: space-around; align-items: center; height: calc(49px + var(--safe-bottom)); padding: 0 0 var(--safe-bottom); border-top: 1px solid var(--line); background: var(--bg); flex: none; }
+/* compact tab bar: the labels sit just above the home indicator (its strip is only partly kept free) */
+.tabs { --below: max(calc(var(--safe-bottom) - 18px), 6px); display: flex; justify-content: space-around; align-items: center; height: calc(46px + var(--below)); padding: 0 0 var(--below); border-top: 1px solid var(--line); background: var(--bg); flex: none; }
 .tabs button { display: grid; justify-items: center; gap: 1px; font-size: 10px; font-weight: 500; color: var(--faint); padding: 4px 22px; }
 .tabs button.on { color: var(--ink); }
 
