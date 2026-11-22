@@ -47,10 +47,6 @@ Tests: `python -m unittest discover -s tests -p "test_*.py"` (offline) and `carg
 | `drift/` | The window (PyQt6): library (SQLite), online sources (ytmusicapi, yt-dlp), taste and radio, lyrics, pages. |
 | `drift/ui/sketches/` | The rooms. Built-ins are Python; your own rooms are `sketch.js` files run in a sealed JavaScript engine. Start with `guide.html`. |
 
-## How it was made
-
-I'm not a programmer. Drift was built with AI coding agents (Claude Code and Codex): I decided what it should be and feel like, and they wrote the code.
-
 ## Notes
 
 Drift doesn't host or ship any music. Respect the terms of the services you use and the rights of the artists you listen to.
