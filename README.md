@@ -4,6 +4,8 @@
 
 **A music player for Windows that turns every song into a place.**
 
+<p><a href="https://x.com/ysr_tries"><img src="https://img.shields.io/badge/follow-%40ysr__tries-000000?logo=x&amp;logoColor=white" alt="Follow @ysr_tries on X"></a></p>
+
 Drift plays the music on your PC and streams from YouTube Music, YouTube and SoundCloud. Its radio learns what you like and keeps playing while you're online. When you're offline it carries on with your saved songs.
 
 - **Every song is a landscape.** The song's loudness becomes the hills (and the seek bar), the cover becomes the sun, and the lyrics drift above.
@@ -55,6 +57,10 @@ Tests: `python -m unittest discover -s tests -p "test_*.py"` (offline) and `carg
 To name a song, Drift sends Shazam a short fingerprint of what the PC plays (peaks of the sound, not the sound itself). Nothing is sent until you press the shortcut or the button.
 
 Drift doesn't host or ship any music. Respect the terms of the services you use and the rights of the artists you listen to.
+
+## Follow along
+
+New versions, sneak peeks and ideas: [@ysr_tries on X](https://x.com/ysr_tries). Ideas and bug reports are welcome there or in [Issues](https://github.com/Y-Hsn/drift/issues).
 
 ## Licence
 
