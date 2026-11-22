@@ -223,7 +223,7 @@ async function refreshWishes() {
 async function openSheet() {
   const pair = await sync.paired(), sp = await space(), budget = await kv.get('budget', 2 * 1024 ** 3);
   const count = (await songs.all()).filter(s => s.ready).length;
-  $('set-pc').textContent = pair ? `${pair.pcName}${sync.state.online ? ' · online' : ''}` : '—';
+  $('set-pc').textContent = pair ? `${sync.cap(pair.pcName)}${sync.state.online ? ' · online' : ''}` : '—';
   $('set-space').textContent = `${count} songs · ${gb(sp.used)}`;
   document.querySelectorAll('#budget .chip').forEach(c => c.classList.toggle('on', +c.dataset.gb * 1024 ** 3 === budget));
   show($('sheet'));

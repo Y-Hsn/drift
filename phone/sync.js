@@ -47,10 +47,10 @@ export async function redeem(inv) {
   const ticket = [r.ticket, b64(enc.encode(inv.url)), inv.topic, r.pc || '', b64(enc.encode(r.pcName || 'your PC'))].join('|');
   if (isIOS() && !standalone()) {
     cookie('drift_ticket', ticket, 86400);
-    return { needsHomeScreen: true, pcName: r.pcName || 'your PC' };
+    return { needsHomeScreen: true, pcName: pcLabel(r.pcName) };
   }
   await finish(ticket);
-  return { needsHomeScreen: false, pcName: r.pcName || 'your PC' };
+  return { needsHomeScreen: false, pcName: pcLabel(r.pcName) };
 }
 
 // Step 2 (inside the installed app): make this phone's own key and register it with the PC.
@@ -66,7 +66,11 @@ export async function finish(ticket = readCookie('drift_ticket')) {
   return true;
 }
 
-export const paired = () => kv.get('pair');
+// Each phone pairs with its owner's own PC. Windows' made-up names come as "My PC" / "My laptop" from 1.1.0 PCs:
+// on the phone that reads as someone else's computer, so it says "your PC" / "your laptop".
+export const pcLabel = n => ({ 'My PC': 'your PC', 'My laptop': 'your laptop' })[n] || n || 'your PC';
+export const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+export const paired = () => kv.get('pair').then(p => p && { ...p, pcName: pcLabel(p.pcName) });
 export const pendingTicket = () => !!readCookie('drift_ticket');
 
 export async function forget() {
@@ -183,7 +187,7 @@ export async function syncNow({ budget } = {}) {
   state.busy = true; say(`Looking for ${pair.pcName}…`);
   try {
     const found = await reach(pair);
-    if (!found) { state.online = false; say(`${pair.pcName} is off or offline. Your songs here keep playing.`); return; }
+    if (!found) { state.online = false; say(`${cap(pair.pcName)} is off or offline. Your songs here keep playing.`); return; }
     state.online = true; state.pc = found.hello;
     const url = found.url;
 
@@ -250,7 +254,7 @@ export async function syncNow({ budget } = {}) {
     state.progress = null;
     say(todo.length ? `${done} new songs from ${pair.pcName}` : `In sync with ${pair.pcName}`);
   } catch (e) {
-    if (e.status === 503) { say(`${(await paired())?.pcName || 'Your PC'} is getting your songs ready…`); syncSoon([15000]); return; }
+    if (e.status === 503) { say(`${cap((await paired())?.pcName || 'your PC')} is getting your songs ready…`); syncSoon([15000]); return; }
     state.online = false;
     say(e.unpaired ? 'This phone was unpaired on the PC. Pair it again from Drift on your PC.' : `Sync stopped: ${e.message}`);
     if (e.unpaired) await forget();
