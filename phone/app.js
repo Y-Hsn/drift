@@ -15,7 +15,15 @@ const gb = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)
 
 async function start() {
   // [Drift for Android] the app has its files in the APK and its songs with the native player: no service worker
-  if ('serviceWorker' in navigator && !native.on) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && !native.on) {
+    // a new version of the app took over (it installs in the background at launch): show it now, once
+    const had = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (had && !reloaded && !player.playing) { reloaded = true; location.reload(); }
+    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   const hash = location.hash;
   const inv = sync.invite();
   let pair = await sync.paired();
