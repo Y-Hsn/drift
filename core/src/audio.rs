@@ -207,6 +207,56 @@ impl Drop for Download {
     }
 }
 
+/// The next song, fetched into the cache while this one plays (one at a time), so it starts the moment it is due.
+struct Ahead {
+    id: String,
+    _download: Download,
+    done: Arc<AtomicBool>,
+}
+
+static AHEAD: Mutex<Option<Ahead>> = Mutex::new(None);
+
+/// Start fetching `item` (the next song) in the background, unless it is on disk already or being fetched.
+pub fn fetch_ahead(item: &Item) {
+    let Some(src) = item.src.clone().filter(|s| s.starts_with("http")) else { return };
+    if cached(&item.id).is_file() {
+        return;
+    }
+    let mut ahead = AHEAD.lock().unwrap();
+    if ahead.as_ref().is_some_and(|a| a.id == item.id) {
+        return;
+    }
+    *ahead = None; // a different next song: stop the old fetch
+    let f = Fetch::default();
+    let mine = f.clone();
+    let done = Arc::new(AtomicBool::new(false));
+    let finished = done.clone();
+    let it = item.clone();
+    std::thread::spawn(move || {
+        let _ = fetch(&it, &src, &mine);
+        finished.store(true, Ordering::Relaxed);
+    });
+    *ahead = Some(Ahead { id: item.id.clone(), _download: Download(f), done });
+}
+
+/// Loading `id`: if it is the song being fetched ahead, wait for that fetch (no second download of the same
+/// file); any other fetch ahead stops, so the song asked for gets the whole connection.
+fn settle_ahead(id: &str, stop: &AtomicBool) {
+    let done = {
+        let mut ahead = AHEAD.lock().unwrap();
+        match ahead.as_ref() {
+            Some(a) if a.id == id => a.done.clone(),
+            _ => {
+                *ahead = None;
+                return;
+            }
+        }
+    };
+    while !done.load(Ordering::Relaxed) && !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(Duration::from_millis(40));
+    }
+}
+
 fn cache_dir() -> PathBuf {
     let d = crate::data_dir().join("stream");
     let _ = std::fs::create_dir_all(&d);
@@ -479,6 +529,9 @@ fn load(item: Item, at: u64, gen: u64, tx: mpsc::Sender<Cmd>) -> Download {
             let src = item.src.clone().ok_or("no source")?;
             let path = if src.starts_with("http") {
                 let c = cached(&item.id);
+                if !c.is_file() {
+                    settle_ahead(&item.id, &mine.stop);
+                }
                 if c.is_file() { c } else { fetch(&item, &src, &mine)? }
             } else {
                 PathBuf::from(&src)
@@ -754,6 +807,37 @@ pub fn run(tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Cmd>, info: Arc<Mutex<Info>
 
 #[cfg(test)]
 mod tests {
+    /// cargo test --release -- --ignored ahead --nocapture: the next song lands on disk while "this one plays";
+    /// loading it waits for that fetch instead of downloading it twice; a different next song stops the old fetch.
+    #[test]
+    #[ignore]
+    fn ahead() {
+        let dir = std::env::temp_dir().join(format!("drift-ahead-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("DRIFT_DATA", &dir);
+        let song = dir.join("song.bin");
+        let bytes: Vec<u8> = (0..(super::CHUNK as usize * 2 + 12345)).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&song, &bytes).unwrap();
+        let url = format!("file:///{}", song.display().to_string().replace('\\', "/"));
+        let a = crate::Item { id: "yt:a".into(), src: Some(url.clone()), ..Default::default() };
+        let f = super::Fetch::default();
+        let t = std::time::Instant::now();
+        let path = super::fetch(&a, &url, &f).expect("fetch");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        println!("fetched {} MB in {} ms", bytes.len() / 1_000_000, t.elapsed().as_millis());
+        // settle: a fetch ahead for this id is waited for; another id's fetch ahead is dropped
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *super::AHEAD.lock().unwrap() = Some(super::Ahead { id: "yt:b".into(), _download: super::Download(super::Fetch::default()), done: done.clone() });
+        let d2 = done.clone();
+        std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(300)); d2.store(true, std::sync::atomic::Ordering::Relaxed); });
+        let t = std::time::Instant::now();
+        super::settle_ahead("yt:b", &std::sync::atomic::AtomicBool::new(false));
+        assert!(t.elapsed().as_millis() >= 250, "waited for the fetch ahead");
+        super::settle_ahead("yt:other", &std::sync::atomic::AtomicBool::new(false));
+        assert!(super::AHEAD.lock().unwrap().is_none(), "a different song stops the fetch ahead");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// cargo test --release -- --ignored speakers --nocapture: opens the speakers in every format the default device
     /// lists (silence, 100 ms each) and through try_output, the way the player does.
     #[test]

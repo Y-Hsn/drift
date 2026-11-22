@@ -359,6 +359,9 @@ impl Ctx {
             }
             "upcoming" => {
                 if let Ok(items) = serde_json::from_value::<Vec<Item>>(v["items"].clone()) {
+                    if let Some(next) = items.first() {
+                        audio::fetch_ahead(next); // on disk before it is due: the radio flows song to song
+                    }
                     self.st.lock().unwrap().upcoming = items;
                 }
             }
@@ -575,6 +578,7 @@ const FAILS_BEFORE_STOP: u32 = 5;
 fn watch(ctx: Ctx) {
     let mut last_pos = Instant::now();
     let mut fails_in_row = 0u32; // songs that failed one after another, none played between
+    let mut ahead_for = String::new(); // the song for which the next one was last sent ahead
     loop {
         thread::sleep(Duration::from_millis(100));
         let (ended, failed, pos, dur, playing, loading, listened, audio_id, why) = {
@@ -585,6 +589,13 @@ fn watch(ctx: Ctx) {
         };
         if playing {
             fails_in_row = 0;
+            if audio_id != ahead_for {
+                // this song is playing now: the next one goes onto disk meanwhile (no competing with this load)
+                ahead_for = audio_id.clone();
+                if let Some(next) = ctx.st.lock().unwrap().upcoming.first() {
+                    audio::fetch_ahead(next);
+                }
+            }
         }
         if failed {
             fails_in_row += 1;

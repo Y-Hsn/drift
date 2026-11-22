@@ -19,7 +19,10 @@ _streams = {}                       # uid -> (url, expires)
 _lock = threading.Lock()
 _yt_blocked_until = 0.0             # YouTube said "confirm you're not a bot" / 429: leave it alone for a while
 BLOCK_PAUSE = 30 * 60
-_js_until = 0.0                     # YouTube shut the JavaScript-free route here: use the JS runtime straight away
+_fast_misses = 0                    # songs in a row only the JavaScript route could open
+_probe_at = 0.0                     # while the fast route looks shut: when to try it again
+FAST_SHUT_AFTER = 3
+PROBE_EVERY = 600
 # Audio-only files drift-core can decode (symphonia: AAC/ALAC in MP4, MP3, Vorbis). Never Opus/WebM or a video file:
 # the core cannot play those, and the song would fail with "cannot be played right now".
 PLAYABLE = ('bestaudio[ext=m4a][protocol^=http]/bestaudio[acodec^=mp4a][protocol^=http]/'
@@ -68,17 +71,20 @@ def js_runtimes():
 
 
 def _extract(url, download=False, **options):
-    """yt-dlp info for one song. First without JavaScript (fast: YouTube's 'visionos' route only); if YouTube
-    refuses that route on this connection, again with a JavaScript runtime, which opens its other routes.
-    Without this fallback a PC where the one JS-less route is shut can play or save nothing. Once the fast try
-    failed and the slow one worked, later songs go straight to the slow one (for an hour)."""
-    global _js_until
+    """yt-dlp info for one song. Always the fast way first (no JavaScript: YouTube's 'visionos' route, ~2 s). Only
+    if that fails for this song, again with a JavaScript runtime (deno/node/bun if on the PC, else the bundled
+    QuickJS: ~10 s or more on a slow PC), which opens YouTube's other routes. Only when the fast way failed for
+    FAST_SHUT_AFTER songs in a row (the route is shut on this connection, not one odd song) is it skipped, and even
+    then tried again every PROBE_EVERY seconds."""
+    global _fast_misses, _probe_at
     runtimes = js_runtimes()
+    shut = bool(runtimes) and _fast_misses >= FAST_SHUT_AFTER and time.time() < _probe_at
     fast_failed = False
-    if not runtimes or time.time() >= _js_until:
+    if not shut:
         with _ydl(js_runtimes={}, **options) as y:
             try:
                 info = y.extract_info(url, download=download)
+                _fast_misses = 0
                 return info, (Path(y.prepare_filename(info)) if download else None)
             except Exception as e:
                 _note_block(e)
@@ -87,8 +93,10 @@ def _extract(url, download=False, **options):
                 fast_failed = True
     with _ydl(js_runtimes=runtimes, **options) as y:
         info = y.extract_info(url, download=download)
-        if fast_failed:          # the fast route is shut here, not just this one song gone: skip it for a while
-            _js_until = time.time() + 3600
+        if fast_failed:
+            _fast_misses += 1
+            if _fast_misses >= FAST_SHUT_AFTER:
+                _probe_at = time.time() + PROBE_EVERY
         return info, (Path(y.prepare_filename(info)) if download else None)
 
 

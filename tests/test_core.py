@@ -153,12 +153,13 @@ class JsFallback(unittest.TestCase):
         return calls, (lambda **o: Y(o))
 
     def setUp(self):
-        self._saved = (online._ydl, online.js_runtimes, online._js_until, online._yt_blocked_until)
+        self._saved = (online._ydl, online.js_runtimes, online._fast_misses, online._probe_at, online._yt_blocked_until)
         online.js_runtimes = lambda: {'quickjs': {'path': 'qjs.exe'}}
-        online._js_until = online._yt_blocked_until = 0.0
+        online._fast_misses, online._probe_at, online._yt_blocked_until = 0, 0.0, 0.0
 
     def tearDown(self):
-        online._ydl, online.js_runtimes, online._js_until, online._yt_blocked_until = self._saved
+        (online._ydl, online.js_runtimes, online._fast_misses, online._probe_at,
+         online._yt_blocked_until) = self._saved
 
     def test_fast_route_first_when_it_works(self):
         calls, online._ydl = self._fake(False)
@@ -166,12 +167,24 @@ class JsFallback(unittest.TestCase):
         online._extract('u')
         self.assertEqual(calls, [False, False])
 
-    def test_shut_route_falls_back_then_goes_straight_to_js(self):
+    def test_one_odd_song_does_not_slow_the_next_ones(self):
         calls, online._ydl = self._fake(True)
-        info, _ = online._extract('u')
+        info, _ = online._extract('u')                 # this song needs the slow route...
         self.assertEqual(info['url'], 'https://a')
+        online._ydl = self._fake(False)[1]
+        online._extract('u')                           # ...the next one still goes the fast way
+        self.assertEqual(calls, [False, True])
+        self.assertEqual(online._fast_misses, 0)
+
+    def test_shut_route_is_skipped_after_three_then_probed_again(self):
+        calls, online._ydl = self._fake(True)
+        for _ in range(online.FAST_SHUT_AFTER):
+            online._extract('u')
+        online._extract('u')                           # route shut: straight to JS
+        self.assertEqual(calls, [False, True] * online.FAST_SHUT_AFTER + [True])
+        online._probe_at = 0.0                         # ten minutes later: the fast way is tried again
         online._extract('u')
-        self.assertEqual(calls, [False, True, True])
+        self.assertEqual(calls[-2:], [False, True])
 
     def test_bot_check_is_not_retried(self):
         calls, _ = self._fake(True)

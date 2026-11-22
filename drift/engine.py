@@ -605,10 +605,13 @@ class Engine(QObject):
             self._refill()
 
     def _prefetch(self):
-        """Look up the next streamed song's link now, so it starts at once (the core gets it with the queue)."""
-        nxt = next((t for t in self.queue[:1] if not t.local and t.page), None)
-        if nxt and self.online and not online.blocked(nxt) and not online.cached_link(nxt.uid)[0]:
-            tasks.run(online.stream, nxt, done=lambda r: self._sync_queue(), failed=lambda e: None)
+        """Look up the next two streamed songs' links now, so they start at once even where a lookup is slow
+        (the core gets them with the queue)."""
+        if not self.online:
+            return
+        for nxt in [t for t in self.queue[:2] if not t.local and t.page]:
+            if not online.blocked(nxt) and not online.cached_link(nxt.uid)[0]:
+                tasks.run(online.stream, nxt, done=lambda r: self._sync_queue(), failed=lambda e: None)
 
     def _leave_current(self):
         """Counts a skip when you leave a song early (it teaches taste)."""

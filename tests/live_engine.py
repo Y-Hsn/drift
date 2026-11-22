@@ -44,8 +44,8 @@ def begin():
     wait_playing('first song', after_first)
 
 
-def wait_playing(what, then, tries=[0]):
-    if e.playing and e.position > 0:
+def wait_playing(what, then, tries=[0], uid=None):
+    if e.playing and 0 < e.position < 8000 and (uid is None or (e.current and e.current.uid == uid)):
         log(what, 'playing at', e.position, 'ms', '| queue', len(e.queue))
         tries[0] = 0
         then()
@@ -54,12 +54,19 @@ def wait_playing(what, then, tries=[0]):
         app.exit(1)
     else:
         tries[0] += 1
-        later(100, lambda: wait_playing(what, then))
+        later(100, lambda: wait_playing(what, then, uid=uid))
 
 
 def after_first():
-    later(6000, lambda: (log('queue after radio', len(e.queue), [t.title for t in e.queue[:3]]), e.next(),
-                         wait_playing('after next', alone)))
+    def go():
+        nxt = e.queue[0]
+        log('queue after radio', len(e.queue), [t.title for t in e.queue[:3]],
+            '| next on disk already:', online.core_cache(nxt.uid).is_file())
+        steps.append(time.time())
+        e.next()
+        wait_playing('after next', lambda: (log(f'next song started in {time.time() - steps[-1]:.1f}s'), alone()),
+                     uid=nxt.uid)
+    later(12000, go)
 
 
 TARGET = []
