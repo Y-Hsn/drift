@@ -1,7 +1,7 @@
 //! Hear what this PC plays (a video, a film, anything) and turn it into a Shazam-format fingerprint; the window asks
 //! Shazam which song it is. Only the fingerprint (peaks of the sound, not the sound) leaves the PC.
 //! Capture = WASAPI loopback of the speakers Drift plays through (not the microphone). Fingerprints are sent at 4, 7,
-//! 10 and 13 s so a clear song is named after ~4 s. The fingerprint algorithm and format follow SongRec
+//! 10 and 13 s; the window names a song once two of them agree (hear.py), so a clear song is named after ~7 s. The fingerprint algorithm and format follow SongRec
 //! (github.com/marin-m/SongRec, GPL-3.0), which documents Shazam's signature format.
 use crate::Ctx;
 use cpal::traits::{DeviceTrait, StreamTrait};
@@ -103,13 +103,12 @@ fn capture(ctx: &Ctx) -> Result<(), String> {
         }
         let mono = heard.lock().unwrap().clone();
         let mut s16 = to_16k(&mono, rate);
-        if s16.len() > KEEP {
-            s16.drain(..s16.len() - KEEP);
-        }
+        let skipped = s16.len().saturating_sub(KEEP); // where this window starts, after the start of listening
+        s16.drain(..skipped);
         let quiet = s16.iter().all(|s| s.abs() < 1e-4);
         let uri = uri(&s16);
         say(ctx, json!({"ev": "heard", "try": n + 1, "last": n + 1 == SEND_AT.len(), "uri": uri,
-                        "ms": s16.len() * 1000 / RATE, "quiet": quiet,
+                        "ms": s16.len() * 1000 / RATE, "from_ms": skipped * 1000 / RATE, "quiet": quiet,
                         "at": SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)}));
     }
     drop(stream);

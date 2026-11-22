@@ -50,12 +50,59 @@ def about(answer):
         for row in section.get('metadata') or ():
             meta[(row.get('title') or '').lower()] = row.get('text') or ''
     images = track.get('images') or {}
+    best = answer['matches'][0] or {}
     return {'title': track['title'], 'artist': track.get('subtitle') or '', 'album': meta.get('album', ''),
-            'year': meta.get('released', ''), 'cover': images.get('coverarthq') or images.get('coverart') or ''}
+            'year': meta.get('released', ''), 'cover': images.get('coverarthq') or images.get('coverart') or '',
+            'key': str(track.get('key') or ''), 'offset': float(best.get('offset') or 0),
+            'timeskew': float(best.get('timeskew') or 0), 'freqskew': float(best.get('frequencyskew') or 0),
+            'matches': len(answer['matches'])}
+
+
+AGREE_WITHIN = 1.5      # seconds: two listens of one song point at the same place in it
+
+
+def same_key(a, b):
+    """Both answers name one song."""
+    return bool(a and b) and (bool(a['key']) and a['key'] == b['key'] or (
+        a['title'].casefold(), a['artist'].casefold()) == (b['title'].casefold(), b['artist'].casefold()))
+
+
+def same_song(a, b):
+    """Two answers name the same song AND the same moment in it: a real match. When Shazam doesn't know a song it
+    can answer a similar-sounding one, but then the listens rarely agree on the song and where in it they are.
+    `from` = where each listen started (seconds after listening began). A chorus heard twice can point at an
+    earlier repeat, so a real song can fail this once: sure() also counts how often a song comes back."""
+    return same_key(a, b) and abs((a['offset'] - a['from']) - (b['offset'] - b['from'])) <= AGREE_WITHIN
+
+
+def sure(seen, found, final=False):
+    """Name `found` now? Yes when it agrees with an earlier listen, or the song came back 3 times (2 at the end)."""
+    times = 1 + sum(same_key(s, found) for s in seen)
+    return any(same_song(s, found) for s in seen) or times >= (2 if final else 3)
+
+
+LOG_LINES = 200
+
+
+def note(ev, found, verdict, log=None):
+    """One line per listen in DATA/hear.log: what Shazam answered and what Drift made of it."""
+    from .store import DATA
+    log = log or DATA / 'hear.log'
+    what = (f"{found['artist']} - {found['title']} key={found['key']} offset={found['offset']:.1f} "
+            f"timeskew={found['timeskew']:.5f} freqskew={found['freqskew']:.5f} matches={found['matches']}"
+            if found else 'no match')
+    line = '\t'.join([time.strftime('%Y-%m-%d %H:%M:%S'), f"try {ev.get('try')}", f"{ev.get('ms')} ms",
+                      f"from {ev.get('from_ms', 0)} ms", what, verdict])
+    try:
+        old = log.read_text(encoding='utf-8').splitlines()[-(LOG_LINES - 1):] if log.is_file() else []
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text('\n'.join(old + [line]) + '\n', encoding='utf-8')
+    except OSError:
+        pass
 
 
 def full_song(heard):
-    """The heard song as a Drift track (YouTube Music first): an exact title+artist match, else the top result."""
+    """The heard song as a Drift track (YouTube Music): title + artist match, else a result with the same title."""
     item = {'__typename': 'Track', 'name': heard['title'],
             'artists': {'items': [{'profile': {'name': name.strip()}}
                                   for name in heard['artist'].replace(' & ', ', ').replace(' feat. ', ', ').split(', ')
@@ -63,8 +110,9 @@ def full_song(heard):
     track = links._match(item, prepare=True) if item['artists']['items'] else None
     if track:
         return track
-    found = online.search(f"{heard['artist']} {heard['title']}", 'ytmusic', 3)
-    return found[0] if found else None
+    want = links._key(heard['title'])
+    found = online.search(f"{heard['artist']} {heard['title']}", 'ytmusic', 5)
+    return next((t for t in found if links._key(t.title) == want), None)   # never a different song
 
 
 def sample_track(heard):

@@ -197,10 +197,10 @@ class LinkCard(QWidget):
             col.addWidget(w)
         col.addLayout(row)
 
-    def show_heard(self, about):
+    def show_heard(self, about, sure=True):
         """A song named by ear: its name and artist; listen to it or keep it for offline."""
         self.show_about({**about, 'total': 0})
-        self.eyebrow.setText('HEARD ON THIS PC')
+        self.eyebrow.setText('HEARD ON THIS PC' if sure else 'NOT SURE · HEARD ON THIS PC')
         self.keep.hide()
         self.download.setText('Save for offline')
 
@@ -546,7 +546,7 @@ class ExplorePage(Page):
 
     def hearing(self, on, why):
         if on:
-            self._hear = {'on': True, 'named': False, 'waiting': 0, 'last': False}
+            self._hear = {'on': True, 'named': False, 'waiting': 0, 'last': False, 'seen': []}
             self._stop_link()
             self._stamp = 0
             for w in (self.ideas, self.card, self.results, self.actions, self.nothing):
@@ -566,12 +566,22 @@ class ExplorePage(Page):
 
         def answer(found):
             h['waiting'] -= 1
-            if found and not h['named']:
-                h['named'] = True
-                self.win.engine.listen_stop()
-                self._show_heard(found)
-            elif h['last'] and not h['waiting'] and not h['named']:
-                self._found([], '', ('Could not name it', 'Try again while the song plays clearly, without talking over it.'))
+            if h['named']:
+                return
+            if found:
+                found['from'] = int(ev.get('from_ms') or 0) / 1000
+                named = hear.sure(h['seen'], found)
+                hear.note(ev, found, 'named' if named else 'waiting for another listen to agree')
+                if named:
+                    h['named'] = True
+                    self.win.engine.listen_stop()
+                    self._show_heard(found)
+                    return
+                h['seen'].append(found)
+            else:
+                hear.note(ev, None, '')
+            if h['last'] and not h['waiting']:
+                self._heard_unsure(h)
 
         def failed(e):
             h['waiting'] -= 1
@@ -589,16 +599,28 @@ class ExplorePage(Page):
         tasks.run(hear.recognize, ev.get('uri') or '', int(ev.get('ms') or 0), int(ev.get('at') or 0) or None,
                   done=answer, failed=failed)
 
-    def _show_heard(self, h):
+    def _heard_unsure(self, h):
+        """Listening ended with no two listens agreeing: Shazam's guess, said as a guess, or nothing."""
+        h['named'] = True
+        if not h['seen']:
+            self._found([], '', ('Shazam does not know this song', 'New, unreleased songs and fan uploads are often '
+                                                                   "not in it. Try the video's title in the search."))
+            return
+        guess = max(h['seen'], key=lambda seen: sum(hear.same_key(seen, other) for other in h['seen']))
+        self._show_heard(guess, sure=hear.sure([s for s in h['seen'] if s is not guess], guess, final=True))
+
+    def _show_heard(self, h, sure=True):
         about = {'kind': 'song', 'name': h['title'], 'source': 'Heard on this PC',
                  'note': ' · '.join(filter(None, [h['artist'], h.get('album'), h.get('year')]))}
+        if not sure:
+            about['note'] = "Not sure: Shazam's closest guess, it may not know this song. " + about['note']
         link = self._link = {'about': about, 'found': [], 'cancel': Event(), 'listen': False, 'playing': False,
                              'pid': None, 'download': False, 'done': False, 'single': True}
         self._link_cancel = link['cancel']
         stamp = self._stamp = time.time()
         self.ideas.hide()
         self.nothing.hide()
-        self.card.show_heard(about)
+        self.card.show_heard(about, sure)
         self.status.setText('Finding the full song…')
         self.win.bring_up()
 

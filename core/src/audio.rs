@@ -905,6 +905,11 @@ mod tests {
         let mono: Vec<f32> = all.chunks(channels).map(|f| f.iter().sum::<f32>() / f.len() as f32).collect();
         let s16 = crate::hear::to_16k(&mono, rate);
         let mid = s16.len() / 2;
-        std::fs::write(std::env::var("HEAR_OUT").expect("HEAR_OUT"), crate::hear::uri(&s16[mid - 96_000..mid + 96_000])).unwrap();
+        let out = std::env::var("HEAR_OUT").expect("HEAR_OUT");
+        std::fs::write(&out, crate::hear::uri(&s16[mid - 96_000..mid + 96_000])).unwrap();
+        // as the core sends them while listening from the middle on: 4 s, 7 s, then 12 s starting 1 s in
+        for (n, (from, to)) in [(0usize, 4usize), (0, 7), (1, 13)].iter().enumerate() {
+            std::fs::write(format!("{out}.{n}"), crate::hear::uri(&s16[mid + from * 16_000..mid + to * 16_000])).unwrap();
+        }
     }
 }
