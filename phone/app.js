@@ -13,6 +13,16 @@ const gb = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)
 
 // ---------- start ----------
 
+// iPhone home-screen apps: CSS heights come out one status bar short; the screen's own height is right there.
+function fitScreen() {
+  if (navigator.standalone) document.documentElement.style.setProperty('--app-h', Math.max(innerHeight, screen.height) + 'px');
+}
+fitScreen();
+addEventListener('resize', fitScreen);
+// no pinch-zoom or double-tap zoom: one app, not a web page
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+
 async function start() {
   // [Drift for Android] the app has its files in the APK and its songs with the native player: no service worker
   if ('serviceWorker' in navigator && !native.on) {
