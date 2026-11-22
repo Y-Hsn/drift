@@ -220,7 +220,7 @@ def ytm_track(x):
             secs = 0
     thumbs = x.get('thumbnails') or x.get('thumbnail') or []
     thumb = max(thumbs, key=lambda t: t.get('width') or 0).get('url') if thumbs else None
-    if thumb and 'lh3.googleusercontent' in thumb:
+    if thumb and 'googleusercontent.com' in thumb:     # lh3 and yt3: ask for a sharp picture
         thumb = re.sub(r'=w\d+-h\d+', '=w320-h320', thumb)
     title, artist = x.get('title') or '', ', '.join(artists[:2])
     if x.get('videoType') not in (None, 'MUSIC_VIDEO_TYPE_ATV'):

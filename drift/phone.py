@@ -73,7 +73,7 @@ def _details(path):
 def _save_hashes():
     if _hashes is not None:
         live = {k: v for k, v in _hashes.items()
-                if os.path.isfile(k.split('|')[1] if k.startswith('cover|') else k.split('|')[0])}
+                if os.path.isfile(k.split('|')[1] if k.startswith(('cover|', 'look|')) else k.split('|')[0])}
         _write(ROOT / 'hashes.json', live)
 
 
@@ -105,10 +105,37 @@ def _cover(t, path, fetch=False):
             data = None
         if data and kept.is_file():
             return str(kept)
+    look = f'look|{path}|{t.uid}'
+    if not data and fetch and look not in _hashes:      # no picture anywhere: the same song on YouTube Music has one
+        _hashes[look] = ''
+        data = _look_up_cover(t)
     if data:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
         return str(out)
+    return None
+
+
+def _look_up_cover(t):
+    """Cover bytes of the same song on YouTube Music (same title; same first artist when the song has one), or None."""
+    from .store import clean_title, norm
+    title = norm(clean_title(t.title))
+    if not title:
+        return None
+    artist = norm((t.artist or '').split(',')[0])
+    try:
+        hits = online.search(f'{t.artist or ""} {clean_title(t.title)}'.strip(), 'ytmusic', 5)
+    except Exception:
+        return None
+    for h in hits:
+        same = norm(clean_title(h.title))
+        same_title = same == title or same.startswith(title) or title.startswith(same)
+        same_artist = not artist or artist in norm(h.artist) or norm((h.artist or '').split(',')[0]) in artist
+        if h.thumb and same and same_title and same_artist:
+            try:
+                return online.cover(online._sized(h.thumb, 544) if 'googleusercontent.com' in h.thumb else h.thumb)
+            except Exception:
+                return None
     return None
 
 

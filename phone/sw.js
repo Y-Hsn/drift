@@ -1,14 +1,16 @@
 // Drift phone: the app opens with no internet, and every song on the shelf plays from the phone.
 // Songs live in the 'drift-songs' cache under ./s/<id>; covers under ./c/<id>. Audio asks for byte ranges, so
 // ranges are cut from the cached file here (Safari needs 206 answers for <audio>).
-const SHELL = 'drift-shell-v3';
+const SHELL = 'drift-shell-v7';
 const SONGS = 'drift-songs';
 const FILES = ['./', 'index.html', 'app.js', 'store.js', 'sync.js', 'player.js', 'scape.js', 'style.css',
                'manifest.json', 'icon-192.png', 'icon-512.png'];
 FILES.push('native.js');                            // Drift for Android hooks (off in a browser)
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // straight from the server, never the browser's 10-minute copy (or a new version would keep old files)
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -47,7 +49,7 @@ self.addEventListener('fetch', e => {
   e.respondWith(caches.open(SHELL).then(async c => {
     const key = rel === '' ? './' : rel;
     const hit = await c.match(key, { ignoreSearch: true });
-    const fresh = fetch(e.request).then(r => { if (r.ok && FILES.includes(key)) c.put(key, r.clone()); return r; })
+    const fresh = fetch(e.request, { cache: 'no-cache' }).then(r => { if (r.ok && FILES.includes(key)) c.put(key, r.clone()); return r; })
       .catch(() => hit || new Response('Offline', { status: 503 }));
     return hit || fresh;
   }));

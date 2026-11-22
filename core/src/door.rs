@@ -219,12 +219,13 @@ pub fn start(ctx: Ctx) {
         cfg.topic = format!("drift-{}", b64(&random(16)));
         cfg.link = b64(&random(32));
     }
-    if cfg.name.is_empty() {
-        // Windows' made-up names (DESKTOP-4F2K1QX) say nothing to a person: "My PC" / "My laptop" instead
+    if cfg.name.is_empty() || cfg.name == "My PC" || cfg.name == "My laptop" {
+        // Windows' made-up names (DESKTOP-4F2K1QX) say nothing to a person: "your PC" / "your laptop" instead (the
+        // phone shows it: "Paired with your laptop"; 1.1.0 said "My ...", which read as someone else's computer)
         let n = std::env::var("COMPUTERNAME").unwrap_or_default();
         let up = n.to_ascii_uppercase();
-        cfg.name = if n.is_empty() || up.starts_with("DESKTOP-") || up.starts_with("WIN-") { "My PC".into() }
-                   else if up.starts_with("LAPTOP-") { "My laptop".into() } else { title_case(&n) };
+        cfg.name = if n.is_empty() || up.starts_with("DESKTOP-") || up.starts_with("WIN-") { "your PC".into() }
+                   else if up.starts_with("LAPTOP-") { "your laptop".into() } else { title_case(&n) };
     }
     let listener = TcpListener::bind(("127.0.0.1", cfg.port))
         .or_else(|_| TcpListener::bind("127.0.0.1:0"))

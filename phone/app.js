@@ -13,9 +13,27 @@ const gb = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)
 
 // ---------- start ----------
 
+// iPhone home-screen apps: CSS heights come out one status bar short; the screen's own height is right there.
+function fitScreen() {
+  if (navigator.standalone) document.documentElement.style.setProperty('--app-h', Math.max(innerHeight, screen.height) + 'px');
+}
+fitScreen();
+addEventListener('resize', fitScreen);
+// no pinch-zoom or double-tap zoom: one app, not a web page
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+
 async function start() {
   // [Drift for Android] the app has its files in the APK and its songs with the native player: no service worker
-  if ('serviceWorker' in navigator && !native.on) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && !native.on) {
+    // a new version of the app took over (it installs in the background at launch): show it now, once
+    const had = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (had && !reloaded && !player.playing) { reloaded = true; location.reload(); }
+    });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   const hash = location.hash;
   const inv = sync.invite();
   let pair = await sync.paired();
@@ -223,7 +241,7 @@ async function refreshWishes() {
 async function openSheet() {
   const pair = await sync.paired(), sp = await space(), budget = await kv.get('budget', 2 * 1024 ** 3);
   const count = (await songs.all()).filter(s => s.ready).length;
-  $('set-pc').textContent = pair ? `${pair.pcName}${sync.state.online ? ' · online' : ''}` : '—';
+  $('set-pc').textContent = pair ? `${sync.cap(pair.pcName)}${sync.state.online ? ' · online' : ''}` : '—';
   $('set-space').textContent = `${count} songs · ${gb(sp.used)}`;
   document.querySelectorAll('#budget .chip').forEach(c => c.classList.toggle('on', +c.dataset.gb * 1024 ** 3 === budget));
   show($('sheet'));
